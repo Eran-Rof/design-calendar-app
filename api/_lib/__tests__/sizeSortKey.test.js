@@ -1,5 +1,31 @@
 import { describe, it, expect } from "vitest";
-import { compareSizes, sizeSortKey, mergeSizesIntoScaleOrder } from "../styleMatrix.js";
+import { compareSizes, sizeSortKey, mergeSizesIntoScaleOrder, normalizeSize } from "../styleMatrix.js";
+
+// 2026-07-22 CEO scale-gap annotations: additional letter-size equivalences the
+// operator endorsed. Kept in lock-step with ALPHA in sizeScaleMatch.js (see the
+// canonToken tests there). normalizeSize drives the matrix VIEW + SKU resolver;
+// canonToken drives the coverage audit — both must equate these tokens.
+describe("normalizeSize — CEO scale-gap aliases (2026-07-22)", () => {
+  it("SL is Small", () => expect(normalizeSize("SL")).toBe("SMALL"));
+  it("3X is 3XLARGE", () => {
+    for (const t of ["3X", "3XL", "3XLARGE", "XXXL"]) expect(normalizeSize(t)).toBe("3XLARGE");
+  });
+  it("the 4XL family collapses to 4XLARGE", () => {
+    for (const t of ["4X", "4XL", "4XLARGE", "XXXXL"]) expect(normalizeSize(t)).toBe("4XLARGE");
+  });
+  it("the 5XL family collapses to 5XLARGE", () => {
+    for (const t of ["5X", "5XL", "5XLARGE", "XXXXXL"]) expect(normalizeSize(t)).toBe("5XLARGE");
+  });
+  it("Asst == Assorted (SCALE-00021 spelling vs the SKU spelling)", () => {
+    for (const t of ["Ass", "Asst", "ASSORTED"]) expect(normalizeSize(t)).toBe("ASSORTED");
+  });
+  it("orders the Mens XS–2XL big-and-tall tail XSMALL→5XLARGE", () => {
+    const scrambled = ["5XLARGE", "MEDIUM", "XSMALL", "4XLARGE", "2XLARGE", "SMALL", "3XLARGE", "LARGE", "XLARGE"];
+    expect([...scrambled].sort(compareSizes)).toEqual([
+      "XSMALL", "SMALL", "MEDIUM", "LARGE", "XLARGE", "2XLARGE", "3XLARGE", "4XLARGE", "5XLARGE",
+    ]);
+  });
+});
 
 describe("compareSizes — fallback size-column ordering", () => {
   it("orders kids age-range labels XS→XL (the reported matrix bug)", () => {

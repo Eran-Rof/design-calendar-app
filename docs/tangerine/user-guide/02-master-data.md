@@ -81,7 +81,7 @@ Next to **Size Scale** is a **📐 Scale** button. The size scale picker says *w
 
 **Auto-assign scales from sales history.** A **🎯 From sales history** button (on the Style Master toolbar) backfills the size scale for any **unscaled** style by reading the sizes the style has **actually sold** (from sales orders and AR invoices), most-sold first, and matching them to a scale. It only fills styles with no scale yet — it never overwrites a scale you've set — so it's safe to run any time.
 
-> **Size spelling equivalences.** Scale matching and the size matrix treat common spelling variants as the *same size*: infant month sizes `12MO` ≡ `12M` (likewise 6/9/18/24), one-size `O/S` ≡ `OS`, and the letter forms (`SML` ≡ `S` ≡ `SMALL`, …). So a style whose SKUs say `12MO` is fully covered by a scale that lists `12M` — no duplicate columns and no false "missing size" flags.
+> **Size spelling equivalences.** Scale matching and the size matrix treat common spelling variants as the *same size*: infant month sizes `12MO` ≡ `12M` (likewise 6/9/18/24), one-size `O/S` ≡ `OS`, and the letter forms (`SML` ≡ `S` ≡ `SMALL`, `SL` ≡ `SMALL`, `3X` ≡ `3XL` ≡ `3XLARGE`, the `4XL`/`5XL` big-and-tall tail, and `Asst` ≡ `Assorted`). So a style whose SKUs say `12MO`, `3X`, or `Asst` is fully covered by a scale that lists `12M`, `3XLARGE`, or `Asst` respectively — no duplicate columns and no false "missing size" flags.
 
 ### Prepack matrix (PPK styles only)
 
