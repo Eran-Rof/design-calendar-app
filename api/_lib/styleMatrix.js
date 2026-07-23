@@ -26,12 +26,20 @@ const SKU_SAFE = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+
 // through unchanged. Presentation-only — ip_item_master is NOT mutated.
 const LETTER_SIZE_CANON = {
   XS: "XSMALL", XSM: "XSMALL", "X-SMALL": "XSMALL", XSMALL: "XSMALL",
-  S: "SMALL", SM: "SMALL", SML: "SMALL", SMALL: "SMALL",
+  S: "SMALL", SM: "SMALL", SML: "SMALL", SL: "SMALL", SMALL: "SMALL",
   M: "MEDIUM", MD: "MEDIUM", MED: "MEDIUM", MEDIUM: "MEDIUM",
   L: "LARGE", LG: "LARGE", LRG: "LARGE", LARGE: "LARGE",
   XL: "XLARGE", XLG: "XLARGE", "X-LARGE": "XLARGE", XLARGE: "XLARGE",
   XXL: "2XLARGE", "2X": "2XLARGE", "2XL": "2XLARGE", XXLARGE: "2XLARGE", "2XLARGE": "2XLARGE",
   XXXL: "3XLARGE", "3X": "3XLARGE", "3XL": "3XLARGE", "3XLARGE": "3XLARGE",
+  // Big-and-tall run — the Mens XS–2XL scale (SCALE-00011) grew a 3XLARGE…
+  // 5XLARGE tail (2026-07-22 CEO edit); SKUs abbreviate these 4XL/5XL. Keep in
+  // lock-step with ALPHA in sizeScaleMatch.js.
+  XXXXL: "4XLARGE", "4X": "4XLARGE", "4XL": "4XLARGE", "4XLARGE": "4XLARGE",
+  XXXXXL: "5XLARGE", "5X": "5XLARGE", "5XL": "5XLARGE", "5XLARGE": "5XLARGE",
+  // "Assorted" packs — the Assorted scale (SCALE-00021) spells the column "Asst"
+  // while SKUs carry "Assorted"; same bucket (2026-07-22 CEO note).
+  ASS: "ASSORTED", ASST: "ASSORTED", ASSORTED: "ASSORTED",
   // Infant month sizes — Xoro SKUs spell them "12MO"/"18MO" while the size
   // scales (e.g. Toddler Girl SCALE-00010) carry "12M"/"18M". Without this
   // alias the matrix renders an EMPTY scale column ("12M") NEXT TO the SKU

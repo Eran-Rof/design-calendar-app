@@ -103,3 +103,49 @@ describe("canonToken month + O/S aliases", () => {
     expect(new Set(canonToken("L/12"))).toEqual(new Set(["L", "12"]));
   });
 });
+
+// 2026-07-22 CEO scale-gap annotations ("apply all and relink"): the operator
+// endorsed a handful of equivalences the canon didn't yet make — the flagged
+// SKU token and the scale spell the same size the other way round. SL≡SMALL,
+// 3X≡3XLARGE, the 4XL/5XL family (the Mens scale grew a big-and-tall tail), and
+// Asst≡Assorted. Kept in lock-step with LETTER_SIZE_CANON (see sizeSortKey test).
+describe("canonToken CEO scale-gap aliases (2026-07-22)", () => {
+  it("SL canonicalizes to Small", () => expect(canonToken("SL")).toEqual(["S"]));
+  it("3X ≡ 3XL ≡ 3XLARGE", () => {
+    for (const t of ["3X", "3XL", "3XLARGE", "XXXL"]) expect(canonToken(t)).toEqual(["3XL"]);
+  });
+  it("the 4XL family ≡ 4XL", () => {
+    for (const t of ["4X", "4XL", "4XLARGE", "XXXXL"]) expect(canonToken(t)).toEqual(["4XL"]);
+  });
+  it("the 5XL family ≡ 5XL", () => {
+    for (const t of ["5X", "5XL", "5XLARGE", "XXXXXL"]) expect(canonToken(t)).toEqual(["5XL"]);
+  });
+  it("2X ≡ 2XL (ALPHA now carries the same short forms as LETTER_SIZE_CANON)", () => {
+    for (const t of ["2X", "2XL", "XXL", "2XLARGE"]) expect(canonToken(t)).toEqual(["2XL"]);
+  });
+  it("Asst ≡ Assorted", () => {
+    for (const t of ["Ass", "Asst", "ASSORTED"]) expect(canonToken(t)).toEqual(["ASSORTED"]);
+  });
+});
+
+describe("bestScaleFor — Mens XS–2XL coverage regression (2026-07-22)", () => {
+  // SCALE-00011 grew XSMALL + a 3XLARGE…5XLARGE tail (CEO edit). A style whose
+  // SKUs abbreviate those (XS, SL, 3X, 4XL, 5XL) must now be fully covered.
+  const mens = {
+    id: "mens-xs-5xl", code: "SCALE-00011", name: "Men's XS–2XL",
+    sizes: ["XSMALL", "SMALL", "MEDIUM", "LARGE", "XLARGE", "2XLARGE", "3XLARGE", "4XLARGE", "5XLARGE"],
+  };
+  it("covers XS/SL/M/L/XL/XXL/3X/4XL/5XL abbreviations 100%", () => {
+    const r = bestScaleFor(["XS", "SL", "M", "L", "XL", "XXL", "3X", "4XL", "5XL"], [mens], "M");
+    expect(r.size_scale_id).toBe("mens-xs-5xl");
+    expect(r.reason).toBe("exact_cover");
+    expect(r.matched).toBe(9);
+  });
+  it("Assorted-scale column 'Asst' matches an 'Assorted' SKU (coverage-audit intersection)", () => {
+    // The Assorted scale (SCALE-00021) has a single size, so bestScaleFor leaves
+    // it unassigned (too_few_sizes) — coverage is what matters: the SKU token and
+    // the scale column must canonicalize to the same form.
+    expect(canonToken("Assorted")).toEqual(canonToken("Asst"));
+    expect(canonToken("Assorted")).toEqual(["ASSORTED"]);
+  });
+});

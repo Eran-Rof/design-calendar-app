@@ -11,17 +11,23 @@
 // "Best available" — an imperfect-but-clear winner is assigned; genuinely weak
 // or ambiguous cases (too few sizes, low coverage) are left unassigned.
 
-// Alpha size synonyms → one canonical token.
+// Alpha size synonyms → one canonical token. The 2026-07-22 CEO scale-gap
+// annotations endorsed a few more equivalences whose scales spell the size the
+// other way round from the SKU: SL≡SMALL, 3X≡3XLARGE, 4XLARGE≡4XL,
+// the 5XL family, and Asst≡Assorted. Kept in lock-step with
+// LETTER_SIZE_CANON in styleMatrix.js (same token set, matrix-label canon).
 const ALPHA = new Map([
   ["XXS", "XXS"], ["2XS", "XXS"],
   ["XS", "XS"], ["XSM", "XS"], ["XSML", "XS"], ["XSMALL", "XS"], ["X-SMALL", "XS"],
-  ["S", "S"], ["SM", "S"], ["SML", "S"], ["SMALL", "S"],
+  ["S", "S"], ["SM", "S"], ["SML", "S"], ["SL", "S"], ["SMALL", "S"],
   ["M", "M"], ["MED", "M"], ["MEDIUM", "M"],
   ["L", "L"], ["LG", "L"], ["LRG", "L"], ["LARGE", "L"],
   ["XL", "XL"], ["XLG", "XL"], ["XLRG", "XL"], ["XLARGE", "XL"], ["X-LARGE", "XL"],
-  ["XXL", "2XL"], ["2XL", "2XL"], ["2XLARGE", "2XL"], ["XXLARGE", "2XL"],
-  ["XXXL", "3XL"], ["3XL", "3XL"], ["3XLARGE", "3XL"],
-  ["XXXXL", "4XL"], ["4XL", "4XL"],
+  ["XXL", "2XL"], ["2XL", "2XL"], ["2X", "2XL"], ["2XLARGE", "2XL"], ["XXLARGE", "2XL"],
+  ["XXXL", "3XL"], ["3XL", "3XL"], ["3X", "3XL"], ["3XLARGE", "3XL"],
+  ["XXXXL", "4XL"], ["4XL", "4XL"], ["4X", "4XL"], ["4XLARGE", "4XL"],
+  ["XXXXXL", "5XL"], ["5XL", "5XL"], ["5X", "5XL"], ["5XLARGE", "5XL"],
+  ["ASS", "ASSORTED"], ["ASST", "ASSORTED"], ["ASSORTED", "ASSORTED"],
   ["OS", "OS"], ["ONESIZE", "OS"], ["ONE SIZE", "OS"], ["O/S", "OS"], ["OSFA", "OS"],
 ]);
 
