@@ -13,6 +13,7 @@ import {
   reportMetricMeta, type ReportCustomer, type ReportPeriod, type ReportMetric,
 } from "./buildBuyerVsLyReport";
 import { exportBuyerVsLyPdf, exportBuyerVsLyExcel } from "./buyerVsLyReportExports";
+import { MultiSelectDropdown } from "../../components/MultiSelectDropdown";
 
 // Zero quantities render blank (not "0") so the eye lands only on real numbers.
 const qfmt = (n: number): string => (n === 0 ? "" : n.toLocaleString("en-US", { maximumFractionDigits: 0 }));
@@ -36,10 +37,18 @@ export function BuyerVsLyReportView({ fullRows, scopedRows, runName, metric }: {
   const [lyBaseStyle, setLyBaseStyle] = useState(false);
   const meta = reportMetricMeta(metric);
   const rows = scope === "full" || !scopedRows ? fullRows : scopedRows;
+  // Customer picker — empty selection = every customer in the run. Applied to
+  // the on-screen report AND the downloads so they always match.
+  const [custSel, setCustSel] = useState<string[]>([]);
   const built = useMemo(() => buildBuyerVsLyReport(rows, metric), [rows, metric]);
-  // The view + both exports use the same (optionally zero-filtered) report so a
-  // download always matches what's on screen.
-  const report = useMemo(() => (hideZero ? filterOutZeroReportRows(built) : built), [built, hideZero]);
+  const custOptions = useMemo(() => built.customers.map((c) => ({ value: c.customer, label: c.customer })), [built]);
+  // The view + both exports use the same (optionally zero/customer-filtered)
+  // report so a download always matches what's on screen.
+  const report = useMemo(() => {
+    const base = hideZero ? filterOutZeroReportRows(built) : built;
+    if (custSel.length === 0) return base;
+    return { periods: base.periods, customers: base.customers.filter((c) => custSel.includes(c.customer)) };
+  }, [built, hideZero, custSel]);
   const scopeLabel = scope === "full" || !hasScope ? "Full run" : "Current filters";
 
   const th: React.CSSProperties = { padding: "6px 10px", textAlign: "right", fontSize: 11, fontWeight: 700, color: "#fff", background: PAL.accent, whiteSpace: "nowrap" };
@@ -105,8 +114,8 @@ export function BuyerVsLyReportView({ fullRows, scopedRows, runName, metric }: {
           <tr>
             <th style={thL}></th>
             <th style={thL}></th>
-            {periods.flatMap((p) => [<th key={`d${p.period_code}`} style={th}>Δ</th>, <th key={`p${p.period_code}`} style={th}>%</th>])}
-            <th style={th}>Δ</th>
+            {periods.flatMap((p) => [<th key={`d${p.period_code}`} style={th}>Diff</th>, <th key={`p${p.period_code}`} style={th}>%</th>])}
+            <th style={th}>Diff</th>
             <th style={th}>%</th>
           </tr>
         </thead>
@@ -151,6 +160,16 @@ export function BuyerVsLyReportView({ fullRows, scopedRows, runName, metric }: {
           <div style={{ display: "inline-flex", gap: 2, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: 2, background: PAL.panel }}>
             <button type="button" style={seg(scope === "filtered")} onClick={() => setScope("filtered")}>Current filters</button>
             <button type="button" style={seg(scope === "full")} onClick={() => setScope("full")}>Full run</button>
+          </div>
+        )}
+        {custOptions.length > 1 && (
+          <div title="Choose which customers appear on the report (including hiding the (Supply Only) stock line). Empty = all.">
+            <MultiSelectDropdown
+              selected={custSel}
+              onChange={setCustSel}
+              options={custOptions}
+              allLabel="All customers"
+            />
           </div>
         )}
         <button

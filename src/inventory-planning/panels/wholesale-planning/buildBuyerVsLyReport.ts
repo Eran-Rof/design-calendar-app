@@ -199,7 +199,15 @@ export function buildBuyerVsLyReport(rows: IpPlanningGridRow[], metric: ReportMe
     addInto(cell.ty, idx, metric === "buy" ? r.planned_buy_qty : r.buyer_request_qty);
     if (isDuplicateLy(r, rawStyle)) {
       // Duplicate carriers of the family total — take once (max), never sum.
-      if (idx >= 0) cell.lyFallback[idx] = Math.max(cell.lyFallback[idx], r.ly_reference_qty ?? 0);
+      // A prepack FORECAST row's own ly_reference_qty is 0 (the PPK grain has
+      // no sales); its base-family SP/LY lives in ppk_base_ref (#1890) — use
+      // it here so a PPK-only build still reports the family's last year.
+      // ONLY for real-customer rows: a "(Supply Only)" prepack's ref is the
+      // family total ACROSS customers, which would duplicate the real
+      // customers' own report sections in the grand total.
+      const refLy = customer === "(Supply Only)" ? 0 : Number(r.ppk_base_ref?.ly_reference_qty ?? 0);
+      const lyVal = Math.max(Number(r.ly_reference_qty ?? 0), refLy);
+      if (idx >= 0) cell.lyFallback[idx] = Math.max(cell.lyFallback[idx], lyVal);
     } else {
       cell.hasBase = true;
       addInto(cell.lyBase, idx, r.ly_reference_qty);
