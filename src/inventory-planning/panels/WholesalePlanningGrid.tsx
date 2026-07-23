@@ -46,6 +46,7 @@ import {
   type FreezeKey,
 } from "./wholesale-planning/columns";
 import { buildFacetRecords, facetOptions, type FacetSelections } from "./wholesale-planning/filterFacets";
+import { nextFitScale, scaled } from "./wholesale-planning/fitRowScale";
 import { computeTotals, endingAtsTotal, endingOnHandTotal, rollGroupKeyFor } from "./wholesale-planning/computeTotals";
 import { PlanningGridRow } from "./wholesale-planning/PlanningGridRow";
 import { useCollapsePersistence } from "./wholesale-planning/hooks/useCollapsePersistence";
@@ -1808,6 +1809,61 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       set(cur.filter((v) => !s.stale.includes(v)));
     }
   };
+  // ── Filter row shrink-to-fit ─────────────────────────────────────────
+  // CEO 2026-07-23: on a narrower screen the filter strip wrapped onto a
+  // second line; keep it on ONE line by squeezing every field uniformly, up
+  // to 15% (MIN_FIT_SCALE). Measure what the controls occupy vs the width
+  // available, then feed a uniform scale back into each field's min/max
+  // width. Iterative + dead-banded so the ResizeObserver can't oscillate
+  // (math + convergence are unit-tested in fitRowScale.ts).
+  const filterRowRef = useRef<HTMLDivElement | null>(null);
+  const [filterFitScale, setFilterFitScale] = useState(1);
+  const filterFitScaleRef = useRef(1);
+  // Content (not just viewport) changes the natural width — re-measure when
+  // the option pools or selections change the rendered labels.
+  const filterContentSig = [
+    customers.length, seasons.length, groupNames.length, subCategoryNames.length,
+    genders.length, styles.length, colorOptions.length, periods.length,
+    filterCustomer.length, filterSeason.length, filterCategory.length, filterSubCat.length,
+    filterGender.length, filterStyle.length, filterColor.length,
+    filterAction.length, filterConfidence.length, filterMethod.length, filterPeriod.length,
+  ].join(",");
+  useLayoutEffect(() => {
+    const el = filterRowRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const measure = () => {
+      const kids = Array.from(el.children) as HTMLElement[];
+      if (kids.length === 0) return;
+      const cs = window.getComputedStyle(el);
+      const gap = parseFloat(cs.columnGap || cs.gap || "") || 8;
+      let occupied = gap * (kids.length - 1);
+      for (const k of kids) occupied += k.offsetWidth;
+      const next = nextFitScale({
+        occupied,
+        available: el.clientWidth,
+        currentScale: filterFitScaleRef.current,
+      });
+      if (next !== null) {
+        filterFitScaleRef.current = next;
+        setFilterFitScale(next);
+      }
+    };
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(measure);
+    });
+    ro.observe(el);
+    measure();
+    return () => { ro.disconnect(); cancelAnimationFrame(raf); };
+  }, [filterContentSig]);
+  // Applied to every filter control so they compress together. maxWidth makes
+  // content-bound fields (long customer names) ellipsize instead of stretching.
+  const fFit = {
+    minWidth: scaled(130, filterFitScale),
+    maxWidth: scaled(200, filterFitScale),
+  };
+
   // Column total to pass to a Th header (undefined = totals toggle off, no row).
   const ct = (key: string): number | undefined => (showColumnTotals ? (totals.columns[key] ?? 0) : undefined);
 
@@ -2251,13 +2307,16 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       {headerSlot}
 
       {/* ── Row 1: interdependent filters ──────────────────────────────
-          Left group (Customer → Season → Category → Sub Cat → Gender →
-          Style → Color) all cascade off one another; right group
-          (Confidence / Methods / Actions / Periods) + Clear are pushed to
-          the right edge. See filterFacets.ts for the cascade. */}
-      <div style={S.toolbar}>
+          Customer → Season → Category → Sub Cat → Gender → Style → Color all
+          cascade off one another (filterFacets.ts); Clear + Confidence /
+          Methods / Actions / Periods sit to their right. FLAT flex row (no
+          nested group) so every control is a direct child the shrink-to-fit
+          pass can measure and squeeze — a nested group was itself shrinking
+          and re-wrapping its children onto a second line. */}
+      <div ref={filterRowRef} style={{ ...S.toolbar, gap: scaled(10, filterFitScale) }}>
         <MultiSelectDropdown
           compact
+          {...fFit}
           selected={filterCustomer}
           onChange={setFilterCustomer}
           allLabel="All customers"
@@ -2266,6 +2325,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         />
         <MultiSelectDropdown
           compact
+          {...fFit}
           selected={filterSeason}
           onChange={setFilterSeason}
           allLabel="All seasons"
@@ -2275,6 +2335,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         />
         <MultiSelectDropdown
           compact
+          {...fFit}
           selected={filterCategory}
           onChange={setFilterCategory}
           allLabel="All categories"
@@ -2283,6 +2344,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         />
         <MultiSelectDropdown
           compact
+          {...fFit}
           selected={filterSubCat}
           onChange={setFilterSubCat}
           allLabel="All sub cats"
@@ -2291,6 +2353,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         />
         <MultiSelectDropdown
           compact
+          {...fFit}
           selected={filterGender}
           onChange={setFilterGender}
           allLabel="All genders"
@@ -2300,6 +2363,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         />
         <MultiSelectDropdown
           compact
+          {...fFit}
           selected={filterStyle}
           onChange={setFilterStyle}
           allLabel="All styles"
@@ -2308,6 +2372,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
         />
         <MultiSelectDropdown
           compact
+          {...fFit}
           selected={filterColor}
           onChange={setFilterColor}
           allLabel="All colors"
@@ -2315,55 +2380,59 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           options={colorOptions.map((c) => ({ value: c, label: c }))}
           title="Color — cascades with the other filters. Colours are row-grain, so this populates once the run is built."
         />
-        {/* Right group — pushed to the right edge. Reading right→left:
-            Periods, Actions, Methods, Confidence, then Clear. */}
-        <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-          <button
-            style={{
-              padding: "5px 14px", fontSize: 12, fontWeight: 600,
-              color: "#fff", cursor: "pointer", fontFamily: "inherit",
-              border: `1px solid ${PAL.green}`, borderRadius: 8,
-              background: `linear-gradient(135deg, ${PAL.green} 0%, #059669 100%)`,
-            }}
-            title="Clear the search box and every filter"
-            onClick={() => {
-              setSearch("");
-              setFilterCustomer([]); setFilterSeason([]); setFilterCategory([]); setFilterSubCat([]); setFilterGender([]); setFilterPeriod([]); setFilterStyle([]); setFilterColor([]);
-              setFilterAction([]); setFilterConfidence([]); setFilterMethod([]);
-            }}>Clear</button>
-          <MultiSelectDropdown
-            compact
-            selected={filterConfidence}
-            onChange={setFilterConfidence}
-            allLabel="All confidence"
-            placeholder="Search confidence…"
-            options={["committed", "probable", "possible", "estimate"].map((c) => ({ value: c, label: c }))}
-          />
-          <MultiSelectDropdown
-            compact
-            selected={filterMethod}
-            onChange={setFilterMethod}
-            allLabel="All methods"
-            placeholder="Search methods…"
-            options={Object.keys(METHOD_LABEL).map((m) => ({ value: m, label: METHOD_LABEL[m] }))}
-          />
-          <MultiSelectDropdown
-            compact
-            selected={filterAction}
-            onChange={setFilterAction}
-            allLabel="All actions"
-            placeholder="Search actions…"
-            options={["buy", "expedite", "reduce", "hold", "monitor"].map((a) => ({ value: a, label: a }))}
-          />
-          <MultiSelectDropdown
-            compact
-            selected={filterPeriod}
-            onChange={setFilterPeriod}
-            allLabel="All periods"
-            placeholder="Search periods…"
-            options={periods.map((p) => ({ value: p, label: formatPeriodCode(p) }))}
-          />
-        </div>
+        {/* Clear + the output-derived filters, flowing straight on left→right
+            (CEO). No `marginLeft:auto` — the auto margin ate the row's spare
+            space and pushed the last filter onto a second line even when the
+            controls themselves fit. */}
+        <button
+          style={{
+            padding: `5px ${scaled(14, filterFitScale)}px`, fontSize: 12, fontWeight: 600,
+            color: "#fff", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap",
+            border: `1px solid ${PAL.green}`, borderRadius: 8,
+            background: `linear-gradient(135deg, ${PAL.green} 0%, #059669 100%)`,
+          }}
+          title="Clear the search box and every filter"
+          onClick={() => {
+            setSearch("");
+            setFilterCustomer([]); setFilterSeason([]); setFilterCategory([]); setFilterSubCat([]); setFilterGender([]); setFilterPeriod([]); setFilterStyle([]); setFilterColor([]);
+            setFilterAction([]); setFilterConfidence([]); setFilterMethod([]);
+          }}>Clear</button>
+        <MultiSelectDropdown
+          compact
+          {...fFit}
+          selected={filterConfidence}
+          onChange={setFilterConfidence}
+          allLabel="All confidence"
+          placeholder="Search confidence…"
+          options={["committed", "probable", "possible", "estimate"].map((c) => ({ value: c, label: c }))}
+        />
+        <MultiSelectDropdown
+          compact
+          {...fFit}
+          selected={filterMethod}
+          onChange={setFilterMethod}
+          allLabel="All methods"
+          placeholder="Search methods…"
+          options={Object.keys(METHOD_LABEL).map((m) => ({ value: m, label: METHOD_LABEL[m] }))}
+        />
+        <MultiSelectDropdown
+          compact
+          {...fFit}
+          selected={filterAction}
+          onChange={setFilterAction}
+          allLabel="All actions"
+          placeholder="Search actions…"
+          options={["buy", "expedite", "reduce", "hold", "monitor"].map((a) => ({ value: a, label: a }))}
+        />
+        <MultiSelectDropdown
+          compact
+          {...fFit}
+          selected={filterPeriod}
+          onChange={setFilterPeriod}
+          allLabel="All periods"
+          placeholder="Search periods…"
+          options={periods.map((p) => ({ value: p, label: formatPeriodCode(p) }))}
+        />
       </div>
 
       {/* ── Row 2: view toggles + search ───────────────────────────────
