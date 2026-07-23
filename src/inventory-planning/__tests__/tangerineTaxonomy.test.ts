@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { applyTangerineTaxonomy, taxonomyKey, type TangerineTaxonomy } from "../utils/tangerineTaxonomy";
 
-function tax(entries: Array<[string, { category_name: string | null; sub_category_name: string | null }]>): TangerineTaxonomy {
-  return new Map(entries);
+function tax(entries: Array<[string, { category_name: string | null; sub_category_name: string | null; gender_code?: string | null }]>): TangerineTaxonomy {
+  return new Map(entries.map(([k, v]) => [k, { gender_code: null, ...v }]));
 }
 
 describe("applyTangerineTaxonomy", () => {
@@ -70,6 +70,32 @@ describe("applyTangerineTaxonomy", () => {
       ["RYB0412", { category_name: "SHORTS", sub_category_name: "TWILL SHORTS" }],
     ]));
     expect(attrs).toEqual({ group_name: "DENIM", category_name: "DENIM SHORTS" });
+  });
+
+  it("overlays gender_code onto attrs.gender (Xoro gender absent)", () => {
+    // The common real case: 16k+ items have NO gender in Xoro attrs;
+    // style_master.gender_code (#1907 prefix trigger) fills it.
+    const items = [{ style_code: "RYB0412", attributes: { group_name: "DENIM" } }];
+    const out = applyTangerineTaxonomy(items, tax([
+      ["RYB0412", { category_name: "SHORTS", sub_category_name: "TWILL SHORTS", gender_code: "M" }],
+    ]));
+    expect(out[0].attributes).toEqual({ group_name: "SHORTS", category_name: "TWILL SHORTS", gender: "M" });
+  });
+
+  it("gender_code wins over a stale Xoro gender attr", () => {
+    const items = [{ style_code: "CJB0100", attributes: { gender: "B" } }];
+    const out = applyTangerineTaxonomy(items, tax([
+      ["CJB0100", { category_name: null, sub_category_name: null, gender_code: "W" }],
+    ]));
+    expect((out[0].attributes as Record<string, unknown>).gender).toBe("W");
+  });
+
+  it("null gender_code keeps the Xoro gender fallback", () => {
+    const items = [{ style_code: "RYB0412", attributes: { gender: "M" } }];
+    const out = applyTangerineTaxonomy(items, tax([
+      ["RYB0412", { category_name: "SHORTS", sub_category_name: null, gender_code: null }],
+    ]));
+    expect((out[0].attributes as Record<string, unknown>).gender).toBe("M");
   });
 });
 
