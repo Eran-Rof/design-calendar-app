@@ -91,7 +91,7 @@ Each row is a customer × style × color × period demand line. Columns can be s
 
 The filters sit in three rows above the grid:
 
-1. **Customer · Season · Category · Sub Cat · Gender · Style · Color** on the left, then **Clear** (green) · **Confidence · Methods · Actions · Periods** on the right.
+1. **Customer · Season · Category · Sub Cat · Gender · Style · Color**, then **Clear** (green) · **Confidence · Methods · Actions · Periods**. On a narrower screen the filters shrink together (up to 15%) to stay on one line rather than wrapping; narrower still and they wrap as before.
 2. **Totals · PPK inherits base · Explode PPK · Zero-qty rows · System suggestions**, then the **search box**.
 3. **Shift Buyer ◀ 1 mo** (with its *customers* picker) · **Copy Final → Buy** · **Hist T3/6/9/12** · **Freeze through…** · **Columns**.
 

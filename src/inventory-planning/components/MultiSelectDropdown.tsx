@@ -22,6 +22,10 @@ export interface MultiSelectDropdownProps {
   placeholder?: string;
   title?: string;
   minWidth?: number;
+  // Caps the trigger's width so a long label ellipsizes instead of stretching
+  // the control. The planning filter row uses this to squeeze every filter
+  // uniformly (down to ~85%) so the whole strip stays on ONE line.
+  maxWidth?: number;
   compact?: boolean;
   singleSelect?: boolean;
   closeOnMouseLeave?: boolean;
@@ -69,7 +73,7 @@ export function computePopoverAnchor(
 }
 
 export function MultiSelectDropdown({
-  selected, onChange, options, allLabel = "All", placeholder = "Search…", title, minWidth, compact = false, singleSelect = false, closeOnMouseLeave = false,
+  selected, onChange, options, allLabel = "All", placeholder = "Search…", title, minWidth, maxWidth, compact = false, singleSelect = false, closeOnMouseLeave = false,
 }: MultiSelectDropdownProps) {
   const triggerMinWidth = minWidth ?? (compact ? 130 : 180);
   const [open, setOpen] = useState(false);
@@ -209,6 +213,7 @@ export function MultiSelectDropdown({
           cursor: "pointer",
           textAlign: "left" as const,
           minWidth: triggerMinWidth,
+          ...(maxWidth ? { maxWidth, overflow: "hidden" } : {}),
           display: "inline-flex",
           alignItems: "center",
           justifyContent: "space-between",
