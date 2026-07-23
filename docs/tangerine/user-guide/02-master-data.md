@@ -30,7 +30,7 @@ Click **+ Add style** to open. Fields:
 |---|---|---|
 | Style code | yes | Auto-uppercased on save. Unique per entity. |
 | Description | yes | Free text |
-| Gender | no | One of `M`, `WMS`, `B`, `C`, `G`, `U`. Matches the rof_xoro daily conformance set. |
+| Gender | no | One of `M`, `WMS`/`W`, `B`, `C`, `G`, `U`. Matches the rof_xoro daily conformance set. **Auto-populated when left blank**, from the style-code prefix: `PTY`/`RY…` → `M` (Men's), `CJB` → `W` (Women), `RBB` → `B` (Boys), `RCB` → `C` (Child). A gender you set explicitly always wins; prefixes with no rule stay blank. |
 | Season | no | Free text (e.g. `FW26`) |
 | Design year | no | 1990–2100 |
 | Lifecycle | required, defaults `active` | `active` / `phased_out` / `discontinued` / `core` |
