@@ -236,3 +236,30 @@ describe("buildBuyerVsLyReport — baseStyle for the SP/LY-base-style toggle", (
     expect(sty.baseStyle).toBe("RYB0412");
   });
 });
+
+
+describe("buildBuyerVsLyReport - SP/LY from ppk_base_ref on prepack forecast rows", () => {
+  const ref = { system_forecast_qty: 0, final_forecast_qty: 0, ly_reference_qty: 4112, historical_trailing_qty: 0 };
+
+  it("a real-customer PPK forecast row with ly=0 reports the family LY from ppk_base_ref", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ customer_name: "Burlington Coat Factory", sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-BLACK", sku_color: "Black", period_code: "2027-04", ly_reference_qty: 0, ppk_base_ref: ref } as Partial<IpPlanningGridRow>),
+    ]);
+    expect(rep.customers[0].styles[0].colors[0].lyTotal).toBe(4112);
+  });
+
+  it("a (Supply Only) PPK row does NOT inherit (its ref is the cross-customer total)", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ customer_name: "(Supply Only)", sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-BLACK", sku_color: "Black", period_code: "2027-04", ly_reference_qty: 0, ppk_base_ref: ref } as Partial<IpPlanningGridRow>),
+    ]);
+    expect(rep.customers[0].styles[0].colors[0].lyTotal).toBe(0);
+  });
+
+  it("base rows still win - the ref fallback never adds on top (no re-double)", () => {
+    const rep = buildBuyerVsLyReport([
+      row({ customer_name: "Burlington Coat Factory", sku_style: "RYB0412", sku_code: "RYB0412-BLACK", sku_color: "Black", period_code: "2027-04", ly_reference_qty: 4112 }),
+      row({ customer_name: "Burlington Coat Factory", sku_style: "RYB0412PPK", sku_code: "RYB0412PPK-BLACK", sku_color: "Black", period_code: "2027-04", ly_reference_qty: 0, ppk_base_ref: ref } as Partial<IpPlanningGridRow>),
+    ]);
+    expect(rep.customers[0].styles[0].colors[0].lyTotal).toBe(4112); // once, not 8224
+  });
+});
