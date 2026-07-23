@@ -32,6 +32,7 @@ import {
   SUSPICIOUS_PRICE_RATIO,
 } from "../../_lib/sales-grain.js";
 import { detectSoStore } from "../../_lib/ats-parse.js";
+import { distinctInvoiceNumbers, fetchEnrichedInvoiceSet, partitionEnriched, ENRICHED_PREFIXES } from "../../_lib/salesEnrichGuard.js";
 
 export const config = { api: { bodyParser: false }, maxDuration: 300 };
 
@@ -758,7 +759,24 @@ export default async function handler(req, res) {
       existing.margin_pct = null;
     }
   }
-  const aggregated = Array.from(merged.values());
+  let aggregated = Array.from(merged.values());
+
+  // ── Size-enrichment guard ─────────────────────────────────────────────
+  // The AR size-enrichment ops (#1898/#1902/#1909) replace an invoice's
+  // colour-grain rows with per-size rows under different source_line_keys,
+  // so this upsert would happily RE-INSERT the colour aggregate on top and
+  // double that invoice's history (2026-07-23 incident: 19,081 rows /
+  // 3.5M phantom units). Skip any invoice that already carries enriched
+  // rows — the size-grain history is strictly richer than the colour
+  // aggregate the CSV would recreate.
+  {
+    const invoiceNums = distinctInvoiceNumbers(aggregated);
+    const enrichedSet = await fetchEnrichedInvoiceSet(admin, invoiceNums, { errors: counts.errors });
+    const { kept, skipped } = partitionEnriched(aggregated, enrichedSet);
+    aggregated = kept;
+    counts.skipped_size_enriched_rows = skipped.length;
+    counts.skipped_size_enriched_invoices = new Set(skipped.map((r) => r.invoice_number)).size;
+  }
 
   // Default: incremental upsert — matching (source, source_line_key)
   // rows get UPDATEd, new ones INSERTed, orphans stay. This is the
@@ -782,10 +800,15 @@ export default async function handler(req, res) {
         ...counts,
       });
     }
-    const { error: delError, count: deletedCount } = await admin
+    // Enriched size-grain rows share source="excel" but must SURVIVE the
+    // wipe — they're the richer replacement for colour aggregates this
+    // insert would recreate (see the size-enrichment guard above).
+    let del = admin
       .from("ip_sales_history_wholesale")
       .delete({ count: "exact" })
       .eq("source", SOURCE);
+    for (const p of ENRICHED_PREFIXES) del = del.not("source_line_key", "like", `${p}%`);
+    const { error: delError, count: deletedCount } = await del;
     if (delError) {
       counts.errors.push(`pre-insert wipe failed: ${delError.message}`);
       return res.status(500).json({ processed: false, ...counts });

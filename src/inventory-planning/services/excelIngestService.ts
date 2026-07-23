@@ -504,12 +504,54 @@ export async function ingestSalesExcel(
     existing.gross_amount = mergedUp != null ? mergedUp * totalQty : null;
     existing.net_amount = mergedUp != null ? mergedUp * totalQty : null;
   }
-  const aggregated = Array.from(merged.values());
+  let aggregated = Array.from(merged.values());
   if (aggregated.length < out.length) {
     log(
       `Aggregated ${out.length.toLocaleString()} → ${aggregated.length.toLocaleString()} rows (collapsed by style+color per invoice/date)`,
       `Combined ${out.length.toLocaleString()} rows into ${aggregated.length.toLocaleString()} (same style+color on the same invoice were merged)`,
     );
+  }
+
+  // ── Size-enrichment guard (mirrors api/_lib/salesEnrichGuard.js) ────────
+  // Invoices whose sales history was size-enriched (#1898/#1902/#1909) had
+  // their colour-grain rows REPLACED by per-size rows under different
+  // source_line_keys — upserting the colour aggregate back would double
+  // that invoice's history (2026-07-23 nightly incident: 19,081 dup rows).
+  // Skip any invoice that already carries enriched rows.
+  {
+    const ENRICHED_OR = "or=(source_line_key.like.excel:size:*,source_line_key.like.excel:reprice:*,source_line_key.like.excel:fill:*,source_line_key.like.excel:relink:*)";
+    const invoiceNums = Array.from(new Set(
+      aggregated.map((r) => String(r.invoice_number ?? "").trim()).filter(Boolean),
+    ));
+    const enriched = new Set<string>();
+    for (let i = 0; i < invoiceNums.length; i += 200) {
+      const chunk = invoiceNums.slice(i, i + 200);
+      try {
+        const r = await fetch(
+          `${SB_URL}/rest/v1/ip_sales_history_wholesale?select=invoice_number&invoice_number=in.(${chunk.map((v) => `"${v}"`).join(",")})&${ENRICHED_OR}`,
+          { headers: SB_HEADERS },
+        );
+        if (!r.ok) throw new Error(`${r.status}`);
+        for (const row of (await r.json()) as Array<{ invoice_number: string | null }>) {
+          const inv = (row.invoice_number ?? "").trim();
+          if (inv) enriched.add(inv);
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        result.errors.push(`enriched-invoice lookup chunk ${i}: ${msg}`);
+      }
+    }
+    if (enriched.size > 0) {
+      const before = aggregated.length;
+      aggregated = aggregated.filter((r) => !enriched.has(String(r.invoice_number ?? "").trim()));
+      const skipped = before - aggregated.length;
+      if (skipped > 0) {
+        log(
+          `Skipped ${skipped.toLocaleString()} rows on ${enriched.size.toLocaleString()} size-enriched invoices (their history is already at size grain)`,
+          `Skipped ${skipped.toLocaleString()} rows — those invoices already have detailed per-size history that would be double-counted`,
+        );
+      }
+    }
   }
 
   log(
