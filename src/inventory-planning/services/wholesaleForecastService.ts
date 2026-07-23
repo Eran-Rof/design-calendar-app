@@ -53,7 +53,7 @@ function checkAbort(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new BuildCancelledError();
 }
 
-import { readGender, readGroupName, readSubCategoryName } from "../types/itemAttributes";
+import { readGender, readGroupName, readSubCategoryName, readSeason } from "../types/itemAttributes";
 import { buildSiblingMap } from "../../shared/costResolution";
 import {
   baseColorKey,
@@ -170,6 +170,9 @@ export interface BuildFilter {
   sub_category_names?: string[] | null;
   gender?: string | null;
   genders?: string[] | null;
+  // Style Master season (attributes.season via the Tangerine overlay).
+  season?: string | null;
+  seasons?: string[] | null;
   // Period scoping is post-compute: forecast rows for non-matching
   // periods are dropped before upsert. The build still walks the
   // full horizon for rolling supply continuity, then trims at the
@@ -253,19 +256,21 @@ export function pairPassesBuildFilter(
   if (!attrMatches(attrs?.group_name, filter.group_name, filter.group_names)) return false;
   if (!attrMatches(attrs?.category_name, filter.sub_category_name, filter.sub_category_names)) return false;
   if (!attrMatches(attrs?.gender, filter.gender, filter.genders)) return false;
+  if (!attrMatches(attrs?.season, filter.season, filter.seasons)) return false;
   return true;
 }
 
 // True when the filter names a PRODUCT dimension (style / group / sub-cat /
-// gender) — the only case that seeds new pairs (a customer-only filter already
-// covers everything that customer buys; seeding all SKUs for them is neither
-// wanted nor bounded).
+// gender / season) — the only case that seeds new pairs (a customer-only
+// filter already covers everything that customer buys; seeding all SKUs for
+// them is neither wanted nor bounded).
 export function buildFilterHasProductScope(filter: BuildFilter): boolean {
   const any = (a?: string[] | null) => !!a && a.length > 0;
   return !!(filter.style_code || any(filter.style_codes)
     || filter.group_name || any(filter.group_names)
     || filter.sub_category_name || any(filter.sub_category_names)
-    || filter.gender || any(filter.genders));
+    || filter.gender || any(filter.genders)
+    || filter.season || any(filter.seasons));
 }
 
 export interface SeedPairInput {
@@ -1394,6 +1399,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       group_name: readGroupName(item) ?? readGroupName(styleFallback) ?? null,
       sub_category_name: readSubCategoryName(item) ?? readSubCategoryName(styleFallback) ?? null,
       gender: readGender(item) ?? readGender(styleFallback) ?? null,
+      season: readSeason(item) ?? readSeason(styleFallback) ?? null,
       period_code: f.period_code,
       period_start: f.period_start,
       period_end: f.period_end,
@@ -1591,6 +1597,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     const description = stripRequestMarker(supplyTbd?.notes) || styleFb?.description || null;
     const groupName = readGroupName(styleFb) ?? null;
     const subCategoryName = readSubCategoryName(styleFb) ?? null;
+    const season = readSeason(styleFb) ?? null;
     let gender = readGender(styleFb) ?? null;
     // Best-effort gender inference for planner-added new styles
     // (no master row exists yet). Pulls the most common gender from
@@ -1648,6 +1655,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       group_name: groupName ?? supplyTbd?.group_name ?? null,
       sub_category_name: subCategoryName ?? supplyTbd?.sub_category_name ?? null,
       gender,
+      season,
       // Real sku_id when resolved — ties the row to the SKU's supply AND keeps
       // supply totals deduped against any regular forecast row for the same SKU.
       sku_id: synSkuId ?? `tbd:${sp.style_code}`,
@@ -1756,6 +1764,7 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         group_name: groupName ?? t.group_name ?? null,
         sub_category_name: subCategoryName ?? t.sub_category_name ?? null,
         gender,
+        season,
         // Real sku_id when resolved (dedups supply vs. regular rows for same SKU).
         sku_id: tSkuId ?? `tbd:${sp.style_code}`,
         sku_code: `${sp.style_code}-TBD`,

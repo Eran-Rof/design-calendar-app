@@ -16,6 +16,7 @@ function row(p: Partial<IpPlanningGridRow>): IpPlanningGridRow {
     category_name: null,
     group_name: null,
     sub_category_name: null,
+    season: null,
     sku_id: "sku-1",
     sku_code: "STYLE1-RED",
     sku_description: null,

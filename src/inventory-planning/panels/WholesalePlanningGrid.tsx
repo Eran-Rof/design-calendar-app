@@ -45,7 +45,7 @@ import {
   genderLabel,
   type FreezeKey,
 } from "./wholesale-planning/columns";
-import { buildGenderOptions } from "./wholesale-planning/genderFilterOptions";
+import { buildFacetRecords, facetOptions, type FacetSelections } from "./wholesale-planning/filterFacets";
 import { computeTotals, endingAtsTotal, endingOnHandTotal, rollGroupKeyFor } from "./wholesale-planning/computeTotals";
 import { PlanningGridRow } from "./wholesale-planning/PlanningGridRow";
 import { useCollapsePersistence } from "./wholesale-planning/hooks/useCollapsePersistence";
@@ -141,10 +141,11 @@ export interface WholesalePlanningGridProps {
   // "new for this style but exists elsewhere" (green badge) from
   // "truly new, not in master at all" (orange badge).
   masterColorsByStyleLower?: Map<string, Set<string>>;
-  // (style_code, group_name, sub_category_name, gender) tuples from item
-  // master. Drives the TBD style picker's category-wide list AND lets
-  // the Category / Sub Cat / Gender filters populate before a build.
-  masterStyles?: Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null }>;
+  // (style_code, group_name, sub_category_name, gender, season) tuples from
+  // Style Master. Drives the TBD style picker's category-wide list AND lets
+  // the Category / Sub Cat / Gender / Season filters populate + cascade
+  // before a build.
+  masterStyles?: Array<{ style_code: string; group_name: string | null; sub_category_name: string | null; gender: string | null; season: string | null }>;
   // Units-per-pack per PPK style_code (lowercased) from Tangerine's Prepack
   // Matrix. Supplements the SKU/size "PPKn" token when resolving the pack size
   // for the Explode-PPK eaches ⇄ packs conversion.
@@ -239,6 +240,8 @@ export interface WholesalePlanningGridProps {
     sub_category_names: string[] | null;
     gender: string | null;
     genders: string[] | null;
+    season: string | null;
+    seasons: string[] | null;
     period_code: string | null;
     period_codes: string[] | null;
     recommended_action: string | null;
@@ -288,6 +291,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // Multi-select filters — empty array = no filter (all rows pass).
   // Each non-empty array narrows to rows whose value is in the set.
   const [filterCustomer, setFilterCustomer] = usePersistedStringArray("customer");
+  const [filterSeason, setFilterSeason] = usePersistedStringArray("season");
   const [filterCategory, setFilterCategory] = usePersistedStringArray("category");
   const [filterSubCat, setFilterSubCat] = usePersistedStringArray("subCat");
   const [filterGender, setFilterGender] = usePersistedStringArray("gender");
@@ -522,7 +526,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   };
   // Reset to first page whenever filters/sort change so the user doesn't
   // wonder why an empty page is showing.
-  useEffect(() => { setPage(0); }, [search, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortSig, pageSize, collapse, systemSuggestionsOn, showZeroRows, explodePpk, ppkInherit]);
+  useEffect(() => { setPage(0); }, [search, filterCustomer, filterSeason, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, sortSig, pageSize, collapse, systemSuggestionsOn, showZeroRows, explodePpk, ppkInherit]);
 
   // Report active build-relevant filters up to the workbench so the
   // PlanningRunControls' Build button can scope itself to this subset.
@@ -551,28 +555,58 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       sub_category_names: filterSubCat.length > 0 ? filterSubCat : null,
       gender: filterGender[0] ?? null,
       genders: filterGender.length > 0 ? filterGender : null,
+      season: filterSeason[0] ?? null,
+      seasons: filterSeason.length > 0 ? filterSeason : null,
       period_code: filterPeriod[0] ?? null,
       period_codes: filterPeriod.length > 0 ? filterPeriod : null,
       recommended_action: filterAction[0] ?? null,
       confidence_level: filterConfidence[0] ?? null,
       forecast_method: filterMethod[0] ?? null,
     });
-  }, [filterCustomer, filterStyle, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, onFiltersChange]);
+  }, [filterCustomer, filterSeason, filterStyle, filterCategory, filterSubCat, filterGender, filterPeriod, filterAction, filterConfidence, filterMethod, onFiltersChange]);
+
+  // ── Fully-interdependent (faceted) filter option pools ───────────────
+  // CEO 2026-07-23: Customer / Season / Category / Sub Cat / Gender / Style /
+  // Color are all interdependent — selecting any one narrows every other to
+  // the values still reachable. Built on a shared facet-record set (the run's
+  // rows once built, else the Style Master styles pre-build) so the cascade
+  // holds before AND after a build. See wholesale-planning/filterFacets.ts.
+  const facetRecords = useMemo(
+    () => buildFacetRecords(rows, masterStyles),
+    [rows, masterStyles],
+  );
+  const facetSelections: FacetSelections = useMemo(() => ({
+    customer: filterCustomer, season: filterSeason, category: filterCategory,
+    subCat: filterSubCat, gender: filterGender, style: filterStyle, color: filterColor,
+  }), [filterCustomer, filterSeason, filterCategory, filterSubCat, filterGender, filterStyle, filterColor]);
+  // customer_id → display name (rows carry names; master customers seed
+  // pre-build names).
+  const customerNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const c of masterCustomers ?? []) m.set(c.id, c.name);
+    for (const r of rows) m.set(r.customer_id, r.customer_name);
+    return m;
+  }, [rows, masterCustomers]);
 
   const customers = useMemo(() => {
-    const s = new Map<string, string>();
-    // Seed from the customer master so the filter is usable BEFORE a
-    // build — an unbuilt run has no rows, so a rows-only memo left the
-    // Customer dropdown empty until the planner built the forecast. The
-    // master list lets them pre-scope the build by customer.
-    for (const c of masterCustomers ?? []) s.set(c.id, c.name);
-    // Then pull from rows so any planner-added customer that has been
-    // assigned to a TBD line shows up too — the memo intentionally walks
-    // every row (TBD + non-TBD) so freshly created customers don't have
-    // to wait for a build to surface.
-    for (const r of rows) s.set(r.customer_id, r.customer_name);
-    return Array.from(s, ([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name));
-  }, [rows, masterCustomers]);
+    // Post-build: customer options cascade from the run's rows (a Style /
+    // Gender / etc. selection narrows which customers remain). Pre-build there
+    // is no customer↔product linkage, so offer every master customer (the
+    // facet pool is empty because master records carry a WILDCARD customer).
+    const ids = facetOptions(facetRecords, "customer", facetSelections);
+    const list = rows.length > 0
+      ? ids.map((id) => ({ id, name: customerNameById.get(id) ?? id }))
+      : (masterCustomers ?? []).map((c) => ({ id: c.id, name: c.name }));
+    return list.sort((a, b) => a.name.localeCompare(b.name));
+  }, [facetRecords, facetSelections, rows.length, masterCustomers, customerNameById]);
+
+  // Season options — Tangerine Style Master season, cascading with the rest.
+  // Sparsely populated today (most styles carry no season), so this list is
+  // short until seasons are filled in on the Style Master screen.
+  const seasons = useMemo(
+    () => facetOptions(facetRecords, "season", facetSelections).sort(),
+    [facetRecords, facetSelections],
+  );
 
   // Customers eligible for the "Shift Buyer ◀ 1 mo" action: those that carry
   // TBD stock-buy rows (the shift moves TBD Buyer quantities). (Supply Only)
@@ -599,34 +633,18 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shiftEligibleIdSig]);
 
-  // Categories are sourced from the item master GroupName attribute
-  // (text, no FK), so the filter operates on the string directly.
-  // masterStyles carries the same group_name per style straight from the
-  // item master, so the Category filter populates before a build too.
-  const groupNames = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rows) if (r.group_name) s.add(r.group_name);
-    for (const m of masterStyles ?? []) if (m.group_name) s.add(m.group_name);
-    return Array.from(s).sort();
-  }, [rows, masterStyles]);
+  // Category (group_name) options — faceted: narrowed by every OTHER active
+  // filter (Customer / Season / Sub Cat / Gender / Style / Color).
+  const groupNames = useMemo(
+    () => facetOptions(facetRecords, "category", facetSelections).sort(),
+    [facetRecords, facetSelections],
+  );
 
-  // Sub cat options are scoped to the selected Category — picking
-  // "Joggers" in the Category dropdown narrows the Sub Cat list to
-  // only the sub cats found under Joggers. When no category is chosen,
-  // every sub cat is offered. Merges master styles so sub cats are
-  // pickable pre-build (same rationale as the Category filter above).
-  const subCategoryNames = useMemo(() => {
-    const s = new Set<string>();
-    for (const r of rows) {
-      if (filterCategory.length > 0 && !filterCategory.includes(r.group_name ?? "—")) continue;
-      if (r.sub_category_name) s.add(r.sub_category_name);
-    }
-    for (const m of masterStyles ?? []) {
-      if (filterCategory.length > 0 && !filterCategory.includes(m.group_name ?? "—")) continue;
-      if (m.sub_category_name) s.add(m.sub_category_name);
-    }
-    return Array.from(s).sort();
-  }, [rows, masterStyles, filterCategory]);
+  // Sub Cat options — faceted; narrowed by Category and every other filter.
+  const subCategoryNames = useMemo(
+    () => facetOptions(facetRecords, "subCat", facetSelections).sort(),
+    [facetRecords, facetSelections],
+  );
 
   // When category changes and the current sub cat selection is no
   // longer valid in the new scope, clear it so the user doesn't see
@@ -640,19 +658,12 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     }
   }, [filterCategory, subCategoryNames, filterSubCat]);
 
-  // Gender is a free, CASCADING filter — exactly like Sub Cat cascades
-  // under Category. Options = the genders present under the currently
-  // selected Category + Sub Cat, drawn from the build's rows AND the
-  // master styles (style_master gender_code, Tangerine truth). Merging
-  // master styles is what makes it work PRE-BUILD (an unbuilt run has no
-  // rows, so a rows-only pool showed "No matches" even though Category /
-  // Sub Cat populated from the master — the 2026-07-23 report). It is NOT
-  // "all genders all the time" (the #1913 mistake): with SHORTS / DENIM
-  // SHORTS chosen it offers only M / B / G, the genders Tangerine files
-  // under that scope. No grid column is rendered — gender is filter-only.
+  // Gender options — faceted; narrowed by every other filter (Category /
+  // Sub Cat / Customer / Season / Style / Color). Works pre-build from the
+  // Style Master gender_code. No grid column is rendered — filter-only.
   const genders = useMemo(
-    () => buildGenderOptions(rows, masterStyles, filterCategory, filterSubCat),
-    [rows, masterStyles, filterCategory, filterSubCat],
+    () => facetOptions(facetRecords, "gender", facetSelections).sort(),
+    [facetRecords, facetSelections],
   );
 
   // Friendly labels for the dropdown — Xoro's GenderCode column stores
@@ -722,45 +733,28 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
   // Master styles that have no rows in the current run (item exists
   // but no demand pair) are also surfaced via masterStyles so the
   // planner can pre-filter ahead of the next build.
+  // Style options — faceted; narrowed by every other filter. The literal
+  // "TBD" placeholder (catch-all stock-buy slot) is pinned first when the run
+  // has any TBD rows so the planner can scope to unrenamed stock-buy lines.
   const styles = useMemo(() => {
-    const s = new Set<string>();
-    let hasTbd = false;
-    for (const r of rows) {
-      const style = r.sku_style ?? r.sku_code;
-      if (!style) continue;
-      if (style.toUpperCase() === "TBD") { hasTbd = true; continue; }
-      s.add(style);
-    }
-    if (masterStyles) {
-      for (const m of masterStyles) {
-        if (m.style_code && m.style_code.toUpperCase() !== "TBD") s.add(m.style_code);
-      }
-    }
-    const out = Array.from(s).sort();
+    const out = facetOptions(facetRecords, "style", facetSelections)
+      .filter((s) => s.toUpperCase() !== "TBD")
+      .sort();
+    const hasTbd = rows.some((r) => (r.sku_style ?? r.sku_code ?? "").toUpperCase() === "TBD");
     if (hasTbd) out.unshift("TBD");
     return out;
-  }, [rows, masterStyles]);
+  }, [facetRecords, facetSelections, rows]);
 
-  // Colors filter — distinct sku_color values across rows that match
-  // the current category + sub-cat selection. When neither cat nor
-  // sub-cat is filtered, every color in the run is offered. Walks both
-  // TBD and non-TBD rows so planner-added new colors are immediately
-  // selectable. Literal "TBD" is excluded since it's the placeholder
-  // value, not a real color.
-  const colorOptions = useMemo(() => {
-    const setCategory = filterCategory.length > 0 ? new Set(filterCategory) : null;
-    const setSubCat = filterSubCat.length > 0 ? new Set(filterSubCat) : null;
-    const s = new Set<string>();
-    for (const r of rows) {
-      if (setCategory && !setCategory.has(r.group_name ?? "—")) continue;
-      if (setSubCat && !setSubCat.has(r.sub_category_name ?? "—")) continue;
-      const color = (r.sku_color ?? "").trim();
-      if (!color) continue;
-      if (color.toUpperCase() === "TBD") continue;
-      s.add(color);
-    }
-    return Array.from(s).sort();
-  }, [rows, filterCategory, filterSubCat]);
+  // Color options — faceted; narrowed by every other filter. Literal "TBD" is
+  // the placeholder value, not a real color, so it's excluded. Colours are a
+  // row-grain fact (master records carry no colour), so this populates once
+  // the run is built — same as before.
+  const colorOptions = useMemo(
+    () => facetOptions(facetRecords, "color", facetSelections)
+      .filter((c) => c.toUpperCase() !== "TBD")
+      .sort(),
+    [facetRecords, facetSelections],
+  );
 
   // Drop any selected colors that no longer exist under the current
   // cat/sub-cat scope so the planner doesn't see an empty grid because
@@ -907,6 +901,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     // rows × 8 filters × dozens of selected values per filter became
     // a million+ array.includes scans per render.
     const setCustomer = filterCustomer.length > 0 ? new Set(filterCustomer) : null;
+    const setSeason = filterSeason.length > 0 ? new Set(filterSeason) : null;
     const setCategory = filterCategory.length > 0 ? new Set(filterCategory) : null;
     const setSubCat = filterSubCat.length > 0 ? new Set(filterSubCat) : null;
     const setGender = filterGender.length > 0 ? new Set(filterGender) : null;
@@ -918,6 +913,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     const setMethod = filterMethod.length > 0 ? new Set(filterMethod) : null;
     const base = windowedRows.filter((r) => {
       if (setCustomer && !setCustomer.has(r.customer_id)) return false;
+      if (setSeason && !setSeason.has(r.season ?? "—")) return false;
       if (setCategory && !setCategory.has(r.group_name ?? "—")) return false;
       if (setSubCat && !setSubCat.has(r.sub_category_name ?? "—")) return false;
       // TBD rows with no gender (typical for planner-added new
@@ -1086,7 +1082,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       system_forecast_qty: 0,
       final_forecast_qty: Math.max(0, 0 + r.buyer_request_qty + r.override_qty),
     }));
-  }, [windowedRows, deferredSearch, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk, ppkUnitsByStyle, cartonQty]);
+  }, [windowedRows, deferredSearch, filterCustomer, filterSeason, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod, systemSuggestionsOn, showZeroRows, explodePpk, ppkUnitsByStyle, cartonQty]);
 
   // Bulk "Copy Final → Buy": set Buy = Final for every row currently in view
   // (i.e. matching the active filters/search), so the planner can seed the buy
@@ -1777,6 +1773,7 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
     if (rows.length === 0 || filtered.length > 0) return [];
     return findStaleFilterSelections(rows, [
       { dim: "customer", label: "Customer", selected: filterCustomer, valueOf: (r) => r.customer_id, opaque: true },
+      { dim: "season", label: "Season", selected: filterSeason, valueOf: (r) => r.season ?? "—" },
       { dim: "category", label: "Category", selected: filterCategory, valueOf: (r) => r.group_name ?? "—" },
       { dim: "subCat", label: "Sub-cat", selected: filterSubCat, valueOf: (r) => r.sub_category_name ?? "—" },
       { dim: "gender", label: "Gender", selected: filterGender, valueOf: (r) => r.gender ?? "—" },
@@ -1787,12 +1784,13 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
       { dim: "confidence", label: "Confidence", selected: filterConfidence, valueOf: (r) => r.confidence_level },
       { dim: "method", label: "Method", selected: filterMethod, valueOf: (r) => r.forecast_method },
     ]);
-  }, [rows, filtered.length, filterCustomer, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod]);
+  }, [rows, filtered.length, filterCustomer, filterSeason, filterCategory, filterSubCat, filterGender, filterPeriod, filterStyle, filterColor, filterAction, filterConfidence, filterMethod]);
 
   // Remove ONLY the stale values from each affected filter (valid ones stay).
   const clearStaleFilters = () => {
     const setters: Record<string, [string[], (v: string[]) => void]> = {
       customer: [filterCustomer, setFilterCustomer],
+      season: [filterSeason, setFilterSeason],
       category: [filterCategory, setFilterCategory],
       subCat: [filterSubCat, setFilterSubCat],
       gender: [filterGender, setFilterGender],
@@ -2252,7 +2250,153 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
 
       {headerSlot}
 
+      {/* ── Row 1: interdependent filters ──────────────────────────────
+          Left group (Customer → Season → Category → Sub Cat → Gender →
+          Style → Color) all cascade off one another; right group
+          (Confidence / Methods / Actions / Periods) + Clear are pushed to
+          the right edge. See filterFacets.ts for the cascade. */}
       <div style={S.toolbar}>
+        <MultiSelectDropdown
+          compact
+          selected={filterCustomer}
+          onChange={setFilterCustomer}
+          allLabel="All customers"
+          placeholder="Search customers…"
+          options={customers.map((c) => ({ value: c.id, label: c.name }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterSeason}
+          onChange={setFilterSeason}
+          allLabel="All seasons"
+          placeholder="Search seasons…"
+          options={seasons.map((s) => ({ value: s, label: s }))}
+          title="Season — from Tangerine's Style Master. Cascades with the other filters. Sparsely populated until seasons are tagged in Style Master."
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterCategory}
+          onChange={setFilterCategory}
+          allLabel="All categories"
+          placeholder="Search categories…"
+          options={groupNames.map((g) => ({ value: g, label: g }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterSubCat}
+          onChange={setFilterSubCat}
+          allLabel="All sub cats"
+          placeholder="Search sub cats…"
+          options={subCategoryNames.map((s) => ({ value: s, label: s }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterGender}
+          onChange={setFilterGender}
+          allLabel="All genders"
+          placeholder="Search genders…"
+          options={genders.map((g) => ({ value: g, label: genderLabel(g) }))}
+          title="Gender — from Tangerine's Style Master. Cascades with the other filters. No grid column rendered."
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterStyle}
+          onChange={setFilterStyle}
+          allLabel="All styles"
+          placeholder="Search styles…"
+          options={styles.map((s) => ({ value: s, label: s }))}
+        />
+        <MultiSelectDropdown
+          compact
+          selected={filterColor}
+          onChange={setFilterColor}
+          allLabel="All colors"
+          placeholder="Search colors…"
+          options={colorOptions.map((c) => ({ value: c, label: c }))}
+          title="Color — cascades with the other filters. Colours are row-grain, so this populates once the run is built."
+        />
+        {/* Right group — pushed to the right edge. Reading right→left:
+            Periods, Actions, Methods, Confidence, then Clear. */}
+        <div style={{ marginLeft: "auto", display: "inline-flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+          <button
+            style={{
+              padding: "5px 14px", fontSize: 12, fontWeight: 600,
+              color: "#fff", cursor: "pointer", fontFamily: "inherit",
+              border: `1px solid ${PAL.green}`, borderRadius: 8,
+              background: `linear-gradient(135deg, ${PAL.green} 0%, #059669 100%)`,
+            }}
+            title="Clear the search box and every filter"
+            onClick={() => {
+              setSearch("");
+              setFilterCustomer([]); setFilterSeason([]); setFilterCategory([]); setFilterSubCat([]); setFilterGender([]); setFilterPeriod([]); setFilterStyle([]); setFilterColor([]);
+              setFilterAction([]); setFilterConfidence([]); setFilterMethod([]);
+            }}>Clear</button>
+          <MultiSelectDropdown
+            compact
+            selected={filterConfidence}
+            onChange={setFilterConfidence}
+            allLabel="All confidence"
+            placeholder="Search confidence…"
+            options={["committed", "probable", "possible", "estimate"].map((c) => ({ value: c, label: c }))}
+          />
+          <MultiSelectDropdown
+            compact
+            selected={filterMethod}
+            onChange={setFilterMethod}
+            allLabel="All methods"
+            placeholder="Search methods…"
+            options={Object.keys(METHOD_LABEL).map((m) => ({ value: m, label: METHOD_LABEL[m] }))}
+          />
+          <MultiSelectDropdown
+            compact
+            selected={filterAction}
+            onChange={setFilterAction}
+            allLabel="All actions"
+            placeholder="Search actions…"
+            options={["buy", "expedite", "reduce", "hold", "monitor"].map((a) => ({ value: a, label: a }))}
+          />
+          <MultiSelectDropdown
+            compact
+            selected={filterPeriod}
+            onChange={setFilterPeriod}
+            allLabel="All periods"
+            placeholder="Search periods…"
+            options={periods.map((p) => ({ value: p, label: formatPeriodCode(p) }))}
+          />
+        </div>
+      </div>
+
+      {/* ── Row 2: view toggles + search ───────────────────────────────
+          Reading right→left: Search, System suggestions, Zero-qty rows,
+          PPK inherits (+ Explode PPK beside it), Totals. */}
+      <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0 }}>
+        <CollapseToggle
+          label={showColumnTotals ? "Totals: ON" : "Totals: OFF"}
+          active={showColumnTotals}
+          onToggle={() => setShowColumnTotals(!showColumnTotals)}
+        />
+        <div title="Show the base garment family's demand + history (System / Final / SP·LY / Hist T3-12) on prepack (PPK) rows, so a prepack can be planned against real sales — even when the run built PPK only. Column totals dedupe by family so nothing double-counts.">
+          <CollapseToggle
+            label={ppkInherit ? "PPK inherits base: ON" : "PPK inherits base: OFF"}
+            active={ppkInherit}
+            onToggle={() => setPpkInherit(!ppkInherit)}
+          />
+        </div>
+        <CollapseToggle
+          label={explodePpk ? "Explode PPK: ON" : "Explode PPK: OFF"}
+          active={!explodePpk}
+          onToggle={() => setExplodePpk(!explodePpk)}
+        />
+        <CollapseToggle
+          label={showZeroRows ? "Zero-qty rows: ON" : "Zero-qty rows: OFF"}
+          active={!showZeroRows}
+          onToggle={() => setShowZeroRows(!showZeroRows)}
+        />
+        <CollapseToggle
+          label={systemSuggestionsOn ? "System suggestions: ON" : "System suggestions: OFF"}
+          active={!systemSuggestionsOn}
+          onToggle={() => setSystemSuggestionsOnPersistent(!systemSuggestionsOn)}
+        />
         <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
           <input
             className="ip-search-input"
@@ -2294,151 +2438,57 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             >×</button>
           )}
         </div>
-        <MultiSelectDropdown
-          compact
-          selected={filterCustomer}
-          onChange={setFilterCustomer}
-          allLabel="All customers"
-          placeholder="Search customers…"
-          options={customers.map((c) => ({ value: c.id, label: c.name }))}
-        />
-        <MultiSelectDropdown
-          compact
-          selected={filterStyle}
-          onChange={setFilterStyle}
-          allLabel="All styles"
-          placeholder="Search styles…"
-          options={styles.map((s) => ({ value: s, label: s }))}
-        />
-        <MultiSelectDropdown
-          compact
-          selected={filterCategory}
-          onChange={setFilterCategory}
-          allLabel="All categories"
-          placeholder="Search categories…"
-          options={groupNames.map((g) => ({ value: g, label: g }))}
-        />
-        <MultiSelectDropdown
-          compact
-          selected={filterSubCat}
-          onChange={setFilterSubCat}
-          allLabel="All sub cats"
-          placeholder="Search sub cats…"
-          options={subCategoryNames.map((s) => ({ value: s, label: s }))}
-        />
-        <MultiSelectDropdown
-          compact
-          selected={filterColor}
-          onChange={setFilterColor}
-          allLabel="All colors"
-          placeholder="Search colors…"
-          options={colorOptions.map((c) => ({ value: c, label: c }))}
-          title="Color filter — scoped to the selected category + sub-cat. Includes planner-added NEW colors."
-        />
-        <MultiSelectDropdown
-          compact
-          selected={filterGender}
-          onChange={setFilterGender}
-          allLabel="All genders"
-          placeholder="Search genders…"
-          options={genders.map((g) => ({ value: g, label: genderLabel(g) }))}
-          title="Gender filter — sourced from item-master GenderCode. No grid column rendered."
-        />
-        <MultiSelectDropdown
-          compact
-          selected={filterAction}
-          onChange={setFilterAction}
-          allLabel="All actions"
-          placeholder="Search actions…"
-          options={["buy", "expedite", "reduce", "hold", "monitor"].map((a) => ({ value: a, label: a }))}
-        />
-        <MultiSelectDropdown
-          compact
-          selected={filterConfidence}
-          onChange={setFilterConfidence}
-          allLabel="All confidence"
-          placeholder="Search confidence…"
-          options={["committed", "probable", "possible", "estimate"].map((c) => ({ value: c, label: c }))}
-        />
-        <MultiSelectDropdown
-          compact
-          selected={filterMethod}
-          onChange={setFilterMethod}
-          allLabel="All methods"
-          placeholder="Search methods…"
-          options={Object.keys(METHOD_LABEL).map((m) => ({ value: m, label: METHOD_LABEL[m] }))}
-        />
-        <MultiSelectDropdown
-          compact
-          selected={filterPeriod}
-          onChange={setFilterPeriod}
-          allLabel="All periods"
-          placeholder="Search periods…"
-          options={periods.map((p) => ({ value: p, label: formatPeriodCode(p) }))}
-        />
-        <button style={{ ...S.btnSecondary, padding: "5px 10px", fontSize: 12 }} onClick={() => {
-          setSearch("");
-          setFilterCustomer([]); setFilterCategory([]); setFilterSubCat([]); setFilterGender([]); setFilterPeriod([]); setFilterStyle([]); setFilterColor([]);
-          setFilterAction([]); setFilterConfidence([]); setFilterMethod([]);
-        }}>Clear</button>
-        <ColumnsButton
-          columns={marginToggleColumns}
-          hidden={hiddenColumns}
-          onToggle={toggleColumn}
-          onReset={resetColumns}
-        />
-        <CollapseToggle
-          label={systemSuggestionsOn ? "System suggestions: ON" : "System suggestions: OFF"}
-          active={!systemSuggestionsOn}
-          onToggle={() => setSystemSuggestionsOnPersistent(!systemSuggestionsOn)}
-        />
-        <CollapseToggle
-          label={showZeroRows ? "Zero-qty rows: ON" : "Zero-qty rows: OFF"}
-          active={!showZeroRows}
-          onToggle={() => setShowZeroRows(!showZeroRows)}
-        />
-        <CollapseToggle
-          label={explodePpk ? "Explode PPK: ON" : "Explode PPK: OFF"}
-          active={!explodePpk}
-          onToggle={() => setExplodePpk(!explodePpk)}
-        />
-        <div title="Show the base garment family's demand + history (System / Final / SP·LY / Hist T3-12) on prepack (PPK) rows, so a prepack can be planned against real sales — even when the run built PPK only. Column totals dedupe by family so nothing double-counts.">
-          <CollapseToggle
-            label={ppkInherit ? "PPK inherits base: ON" : "PPK inherits base: OFF"}
-            active={ppkInherit}
-            onToggle={() => setPpkInherit(!ppkInherit)}
-          />
-        </div>
-        {/* Carton qty — rounds every quantity on a NON-prepack row up to the
-            next whole carton (default 24). Prepack styles keep their own pack
-            size. Set to 0/1 to disable. */}
-        <div
-          title="Round all quantities on non-prepack styles UP to the next whole carton. Prepack (PPK) styles keep their own pack size. Set to 0 or 1 to turn off."
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "2px 8px", background: PAL.panel }}
-        >
-          <span style={{ color: PAL.textDim, fontSize: 11 }}>Carton qty</span>
-          <input
-            type="number"
-            min={0}
-            step={1}
-            value={cartonQty}
-            onChange={(e) => {
-              const n = parseInt(e.target.value, 10);
-              setCartonQty(Number.isFinite(n) && n > 0 ? n : 1);
-            }}
-            style={{
-              width: 52, background: PAL.bg, color: PAL.text,
-              border: `1px solid ${cartonQty > 1 ? PAL.accent : PAL.border}`,
-              borderRadius: 6, padding: "3px 6px", fontSize: 12, textAlign: "right",
-              fontFamily: "monospace", outline: "none",
-            }}
-          />
-        </div>
-        <CollapseToggle
-          label={showColumnTotals ? "Totals: ON" : "Totals: OFF"}
-          active={showColumnTotals}
-          onToggle={() => setShowColumnTotals(!showColumnTotals)}
-        />
+      </div>
+
+      {/* ── Row 3: bulk actions + view utilities ───────────────────────
+          Reading right→left: Columns, Freeze, Hist, Copy Final→Buy,
+          Shift Buyer (+ its customer picker). */}
+      <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0 }}>
+        {/* Bulk: shift the SELECTED customers' TBD Buyer qty back one month.
+            The picker (shown when >1 customer has stock-buy rows) chooses who;
+            defaults to all eligible — so a run with only (Supply Only) rows
+            behaves exactly like before. */}
+        {onShiftBuyerBack && shiftEligibleCustomers.length > 0 && (
+          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            <button
+              type="button"
+              disabled={shiftCustomerIds.length === 0}
+              onClick={() => { void onShiftBuyerBack(shiftCustomerIds); }}
+              title={`Move the selected customer(s)' Buyer quantities to the prior month — the whole schedule shifts one month earlier (e.g. April → March). Applies to ${shiftCustomerIds.length} of ${shiftEligibleCustomers.length} customer(s) with stock-buy rows. Buy / System / Override are unchanged.`}
+              style={{
+                background: "transparent", border: `1px solid ${PAL.border}`,
+                color: shiftCustomerIds.length === 0 ? PAL.border : PAL.textDim,
+                borderRadius: 8, padding: "5px 12px", fontSize: 12,
+                cursor: shiftCustomerIds.length === 0 ? "not-allowed" : "pointer", fontFamily: "inherit",
+              }}
+            >Shift Buyer ◀ 1 mo</button>
+            {shiftEligibleCustomers.length > 1 && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                <span style={{ color: PAL.textMuted, fontSize: 11 }}>customers:</span>
+                <MultiSelectDropdown
+                  compact
+                  selected={shiftCustomerIds}
+                  onChange={setShiftCustomerIds}
+                  allLabel="All customers"
+                  placeholder="Customers to shift…"
+                  options={shiftEligibleCustomers.map((c) => ({ value: c.id, label: c.name }))}
+                />
+              </span>
+            )}
+          </span>
+        )}
+        {/* Bulk seed: set Buy = Final forecast for every row in view. */}
+        <button
+          type="button"
+          onClick={() => { void copyFinalToBuy(); }}
+          disabled={copyingBuy}
+          title="Set Buy = Final forecast for every row currently in view (matching your filters). You can still edit individual Buy cells afterwards."
+          style={{
+            background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim,
+            borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: copyingBuy ? "wait" : "pointer",
+            fontFamily: "inherit", opacity: copyingBuy ? 0.6 : 1,
+          }}
+        >{copyingBuy ? "Copying…" : "Copy Final → Buy"}</button>
         {/* Hist-T window selector — sets how many trailing months the Hist T
             column sums (through each row's same period last year). */}
         <div
@@ -2460,57 +2510,14 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             >T{w}</button>
           ))}
         </div>
-        {/* Bulk seed: set Buy = Final forecast for every row in view. */}
-        <button
-          type="button"
-          onClick={() => { void copyFinalToBuy(); }}
-          disabled={copyingBuy}
-          title="Set Buy = Final forecast for every row currently in view (matching your filters). You can still edit individual Buy cells afterwards."
-          style={{
-            background: "transparent", border: `1px solid ${PAL.border}`, color: PAL.textDim,
-            borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: copyingBuy ? "wait" : "pointer",
-            fontFamily: "inherit", opacity: copyingBuy ? 0.6 : 1,
-          }}
-        >{copyingBuy ? "Copying…" : "Copy Final → Buy"}</button>
-        {/* Bulk: shift the SELECTED customers' TBD Buyer qty back one month.
-            The picker (shown when >1 customer has stock-buy rows) chooses who;
-            defaults to all eligible — so a run with only (Supply Only) rows
-            behaves exactly like before. */}
-        {onShiftBuyerBack && shiftEligibleCustomers.length > 0 && (
-          <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {shiftEligibleCustomers.length > 1 && (
-              <MultiSelectDropdown
-                compact
-                selected={shiftCustomerIds}
-                onChange={setShiftCustomerIds}
-                allLabel="All customers"
-                placeholder="Customers to shift…"
-                options={shiftEligibleCustomers.map((c) => ({ value: c.id, label: c.name }))}
-              />
-            )}
-            <button
-              type="button"
-              disabled={shiftCustomerIds.length === 0}
-              onClick={() => { void onShiftBuyerBack(shiftCustomerIds); }}
-              title={`Move the selected customer(s)' Buyer quantities to the prior month — the whole schedule shifts one month earlier (e.g. April → March). Applies to ${shiftCustomerIds.length} of ${shiftEligibleCustomers.length} customer(s) with stock-buy rows. Buy / System / Override are unchanged.`}
-              style={{
-                background: "transparent", border: `1px solid ${PAL.border}`,
-                color: shiftCustomerIds.length === 0 ? PAL.border : PAL.textDim,
-                borderRadius: 8, padding: "5px 12px", fontSize: 12,
-                cursor: shiftCustomerIds.length === 0 ? "not-allowed" : "pointer", fontFamily: "inherit",
-              }}
-            >Shift Buyer ◀ 1 mo</button>
-          </span>
-        )}
-        {/* Buyer vs LY / Buy vs LY reports live under Reports in the nav
-            (Planning → Reports hub), not on this toolbar. */}
         {/* Freeze through column. Pins the chosen column + everything
             to its left sticky when the planner scrolls horizontally.
             Filtered to visible columns so picking a hidden one can't
-            create a 0-width freeze line. */}
+            create a 0-width freeze line. The trigger always shows the
+            current selection (or "No freeze") so it's never blank. */}
         <div title="Pin leftmost columns through the chosen one when scrolling horizontally" style={{ minWidth: 180 }}>
           <SearchableSelect
-            value={freezeKey || null}
+            value={freezeKey || ""}
             onChange={(v) => setFreezeKey(v)}
             inputStyle={{ ...S.select, fontSize: 12, padding: "2px 6px" }}
             options={[
@@ -2521,39 +2528,23 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
             ]}
           />
         </div>
-      </div>
-
-      <div style={{ ...S.toolbar, marginTop: -4, paddingTop: 0, gap: 10, fontSize: 12, color: PAL.textDim }}>
-        <span style={{ fontWeight: 600 }}>Collapse:</span>
-        <MultiSelectDropdown
-          compact
-          closeOnMouseLeave
-          selected={currentCollapseKeys}
-          onChange={(next) => setCollapse(applyCollapseKeys(next))}
-          allLabel="None"
-          placeholder="Search collapse modes…"
-          options={COLLAPSE_OPTIONS}
-          minWidth={210}
+        <ColumnsButton
+          columns={marginToggleColumns}
+          hidden={hiddenColumns}
+          onToggle={toggleColumn}
+          onReset={resetColumns}
         />
-        {anyCollapsed && (
-          <button style={{ ...S.btnSecondary, fontSize: 11, padding: "2px 8px" }}
-                  onClick={() => setCollapse({ customers: false, colors: false, category: false, subCat: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false })}>
-            Reset
-          </button>
-        )}
-        {anyCollapsed && (
-          <span style={{ color: PAL.textMuted, fontStyle: "italic" }}>
-            Aggregate rows are read-only — drill in by clearing the toggles.
-          </span>
-        )}
+        {/* Buyer vs LY / Buy vs LY reports live under Reports in the nav
+            (Planning → Reports hub), not on this toolbar. */}
       </div>
 
-      {/* Add Row strip — sits above the table. Collapsed by default;
-          expands to a row of pickers (cat, sub-cat, customer, period)
-          that compose into a fresh (Supply Only) TBD line. Style +
-          color hardcoded to "TBD" per the planner's spec. */}
+      {/* ── Above the grid: Add row → Collapse → Carton qty ──────────── */}
+      <div style={{ display: "flex", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 8 }}>
+      {/* Add Row strip. Collapsed by default; expands to a row of pickers
+          (cat, sub-cat, customer, period) that compose into a fresh
+          (Supply Only) TBD line. Style + color hardcoded to "TBD". */}
       {onAddTbdRow && (
-        <div style={{ marginBottom: 8 }}>
+        <div>
           {!addRowOpen ? (
             <>
             <button
@@ -2900,6 +2891,58 @@ export default function WholesalePlanningGrid({ rows, runHorizon, onSelectRow, o
           )}
         </div>
       )}
+        {/* Collapse — aggregate rows by customer / color / category / etc.
+            Moved here (beside Add row) per CEO 2026-07-23. */}
+        <div style={{ display: "inline-flex", alignItems: "center", gap: 10, fontSize: 12, color: PAL.textDim, flexWrap: "wrap" }}>
+          <span style={{ fontWeight: 600 }}>Collapse:</span>
+          <MultiSelectDropdown
+            compact
+            closeOnMouseLeave
+            selected={currentCollapseKeys}
+            onChange={(next) => setCollapse(applyCollapseKeys(next))}
+            allLabel="None"
+            placeholder="Search collapse modes…"
+            options={COLLAPSE_OPTIONS}
+            minWidth={210}
+          />
+          {anyCollapsed && (
+            <button style={{ ...S.btnSecondary, fontSize: 11, padding: "2px 8px" }}
+                    onClick={() => setCollapse({ customers: false, colors: false, category: false, subCat: false, customerAllStyles: false, allCustomersPerCategory: false, allCustomersPerSubCat: false, allCustomersPerStyle: false })}>
+              Reset
+            </button>
+          )}
+          {anyCollapsed && (
+            <span style={{ color: PAL.textMuted, fontStyle: "italic" }}>
+              Aggregate rows are read-only — drill in by clearing the toggles.
+            </span>
+          )}
+        </div>
+        {/* Carton qty — rounds every quantity on a NON-prepack row up to the
+            next whole carton (default 24). Prepack styles keep their own pack
+            size. Set to 0/1 to disable. Placed after Collapse per CEO. */}
+        <div
+          title="Round all quantities on non-prepack styles UP to the next whole carton. Prepack (PPK) styles keep their own pack size. Set to 0 or 1 to turn off."
+          style={{ display: "inline-flex", alignItems: "center", gap: 6, border: `1px solid ${PAL.border}`, borderRadius: 8, padding: "2px 8px", background: PAL.panel }}
+        >
+          <span style={{ color: PAL.textDim, fontSize: 11 }}>Carton qty</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={cartonQty}
+            onChange={(e) => {
+              const n = parseInt(e.target.value, 10);
+              setCartonQty(Number.isFinite(n) && n > 0 ? n : 1);
+            }}
+            style={{
+              width: 52, background: PAL.bg, color: PAL.text,
+              border: `1px solid ${cartonQty > 1 ? PAL.accent : PAL.border}`,
+              borderRadius: 6, padding: "3px 6px", fontSize: 12, textAlign: "right",
+              fontFamily: "monospace", outline: "none",
+            }}
+          />
+        </div>
+      </div>
 
       <GridScrollbarStyles scope="ip-grid-table-wrap" trackColor={PAL.bg} thumbColor={PAL.border} thumbHoverColor={PAL.borderFaint} />
       {/* Sticky-left CSS for the freeze-through-column feature.
