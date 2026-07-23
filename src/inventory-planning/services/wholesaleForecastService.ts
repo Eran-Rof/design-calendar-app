@@ -1596,8 +1596,8 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
     // (no master row exists yet). Pulls the most common gender from
     // sibling styles in the same (group_name, sub_category_name).
     if (!gender) {
-      const siblingCat = supplyTbd?.group_name ?? groupName ?? "";
-      const siblingSub = supplyTbd?.sub_category_name ?? subCategoryName ?? "";
+      const siblingCat = groupName ?? supplyTbd?.group_name ?? "";
+      const siblingSub = subCategoryName ?? supplyTbd?.sub_category_name ?? "";
       gender = genderByCatSubCat.get(`${siblingCat}|${siblingSub}`) ?? null;
     }
     // Skip the synthetic supply line whenever the style is NOT
@@ -1640,8 +1640,13 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
       customer_name: supplyCustomerName,
       category_id: null,
       category_name: null,
-      group_name: supplyTbd?.group_name ?? groupName,
-      sub_category_name: supplyTbd?.sub_category_name ?? subCategoryName,
+      // LIVE master taxonomy (style_master overlay = Tangerine truth) WINS;
+      // the values stored on the TBD row at creation time are only a
+      // fallback for styles the master doesn't know (planner-typed NEW
+      // styles / the literal TBD slot). Stored-wins showed stale
+      // categories forever after a Tangerine re-categorization.
+      group_name: groupName ?? supplyTbd?.group_name ?? null,
+      sub_category_name: subCategoryName ?? supplyTbd?.sub_category_name ?? null,
       gender,
       // Real sku_id when resolved — ties the row to the SKU's supply AND keeps
       // supply totals deduped against any regular forecast row for the same SKU.
@@ -1746,8 +1751,10 @@ export async function buildGridRows(run: IpPlanningRun): Promise<IpPlanningGridR
         customer_name: cust?.name ?? "(unknown customer)",
         category_id: null,
         category_name: null,
-        group_name: t.group_name ?? groupName,
-        sub_category_name: t.sub_category_name ?? subCategoryName,
+        // Same precedence as the synthetic row above: live master WINS,
+        // stored TBD values only cover master-unknown styles.
+        group_name: groupName ?? t.group_name ?? null,
+        sub_category_name: subCategoryName ?? t.sub_category_name ?? null,
         gender,
         // Real sku_id when resolved (dedups supply vs. regular rows for same SKU).
         sku_id: tSkuId ?? `tbd:${sp.style_code}`,
