@@ -320,6 +320,48 @@ export function buildSizeLines(csvLines, itemIdByCsvIndex, aggLine, startLineNum
   return { lines, nextLineNumber: ln };
 }
 
+// ── build CSV-PRICED ar_invoice_lines (reprice / fill passes) ────────────────
+// Rebuilds an invoice's lines to EXACTLY the CSV: one line per CSV line, priced at
+// the CSV amount so the invoice total becomes the CSV total (used only when the
+// caller has gated CSV == GL AR, so this also equals the Xoro GL receivable).
+// unit_price_cents = amount/qty when it divides evenly (keeps the line matrixable +
+// lets the compute_total trigger reproduce the amount); otherwise unit is NULL and
+// line_total_cents carries the exact amount (trigger skips). cogs is distributed
+// from the invoice's current total cogs by qty (best-effort metadata; the GL COGS
+// is posted independently by the Xoro mirror). `itemIds[i]` is the resolved sized
+// SKU for csvLines[i]; `defaults` carries brand/channel/revenue/source.
+export function buildRepriceLines(csvLines, itemIds, defaults, startLineNumber) {
+  const qtys = csvLines.map((l) => l.qty);
+  const totalCogs = defaults.totalCogsCents == null ? null : Number(defaults.totalCogsCents);
+  const cogsParts = totalCogs == null ? null : distributeInt(totalCogs, qtys);
+  const lines = [];
+  let ln = startLineNumber;
+  let sumCents = 0;
+  for (let i = 0; i < csvLines.length; i++) {
+    const l = csvLines[i];
+    const amt = Math.round(l.amountCents);
+    const q = l.qty;
+    const divisible = q > 0 && amt % q === 0;
+    sumCents += amt;
+    lines.push({
+      line_number: ln++,
+      description: l.description || null,
+      inventory_item_id: itemIds[i],
+      quantity: q,
+      unit_price_cents: divisible ? amt / q : null, // null → line kept via explicit line_total
+      line_total_cents: amt,                        // used when unit null; trigger reproduces it when unit set
+      tax_amount_cents: 0,
+      cogs_cents: cogsParts ? cogsParts[i] : null,
+      revenue_account_id: defaults.revenue_account_id ?? null,
+      cogs_account_id: defaults.cogs_account_id ?? null,
+      brand_id: defaults.brand_id ?? null,
+      channel_id: defaults.channel_id ?? null,
+      source: defaults.source || "manual",
+    });
+  }
+  return { lines, nextLineNumber: ln, sumCents };
+}
+
 // ── build the ip_sales_history_wholesale size rows for one group ─────────────
 // The colour row carries qty/gross/net at colour grain (no DB trigger). Explode to
 // size rows using the CSV per-line qty + amount, then reconcile the LAST row so
