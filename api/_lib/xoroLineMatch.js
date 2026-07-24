@@ -89,6 +89,17 @@ const COLOR_ABBR = {
   // SLT has no standalone occurrence in the catalog today — it is folded to
   // guard the ingest path, so a future abbreviated feed cannot mint a duplicate.
   OYST: "OYSTER", VTG: "VINTAGE", MSTY: "MISTY", PLMS: "PALMS", SLT: "SLATE",
+  // GD is the garment-dye FINISH, not a colour word. Folding it is safe because
+  // no style carries both "X" and "X Gd" — verified against the live catalog —
+  // so the finish never distinguishes two variants that would wrongly collapse.
+  // BKB is the doubled-black colourway; "Black Black" and "Black/Black" both
+  // already exist spelled out, so the fold gives all three one key.
+  // ⚠️DELIBERATELY NOT FOLDED: TD. It does mean "tie dyed", but it is MIRRORED
+  // IN THE STYLE CODE ("Td Sky Blue" on PTBG0094TD) — it marks a product line,
+  // not a colour. "Tie Dye" is spelled out nowhere in the catalog, so folding
+  // buys zero merges and would mangle "Td26 Black/White" into "Tie Dyed 26".
+  // Confirmed by the CEO 2026-07-23: keep TD verbatim.
+  GD: "GARMENT DYED", BKB: "BLACK BLACK",
   // GLUED COMPOUNDS — one catalog ingest path strips every separator, so
   // "Medium Blue" arrives as the single token "Mdblue". Token folding alone
   // cannot split these (no camelCase or punctuation boundary to cut on), so
