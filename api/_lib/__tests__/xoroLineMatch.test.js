@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   parseItemNumber, canonSize, sizeVariantsOf, colorMatchKey, expandTokens,
-  resolveStyleToken, pickColorSizeMatch, mergePreservedLinks,
+  resolveStyleToken, pickColorSizeMatch, mergePreservedLinks, stripColorWaistTail,
 } from "../xoroLineMatch.js";
 
 // Real prod catalog rows for style RYB1477 (style_id S_RYB1477), verified against
@@ -122,6 +122,38 @@ describe("colorMatchKey (spelling tolerance)", () => {
     // "CAM" only folds as a WHOLE token; "Camel" must stay "CAMEL".
     expect(colorMatchKey("Camel")).toBe("CAMEL");
     expect(colorMatchKey("Camel")).not.toBe(colorMatchKey("Camo"));
+  });
+
+  // ── 2026-07-24: leaked WAIST size (29-38) stripped from the colour tail ────
+  // #1920 surfaced (but did not fix) 48 SKUs / 42 colours whose colour string
+  // ends in a bare 2-digit waist — "Pond Medium Wash 34", "Bkb 30". The trailing
+  // number is a SIZE, so the sized colour must key to the colour minus the number.
+  it("a trailing waist size (29-38) folds onto the same colour minus the number", () => {
+    expect(colorMatchKey("Pond Medium Wash 34")).toBe(colorMatchKey("Pond Medium Wash"));
+    expect(colorMatchKey("Veil Dark Wash 29")).toBe(colorMatchKey("Veil Dark Wash"));
+    // Composes with the BKB fold: "Bkb 30" folds to BLACK BLACK then drops 30.
+    expect(colorMatchKey("Bkb 30")).toBe(colorMatchKey("Black Black"));
+    // The glued form (no space) is split at the letter/digit boundary first.
+    expect(colorMatchKey("Wash34")).toBe(colorMatchKey("Wash"));
+  });
+
+  it("the waist strip is guarded — range, trailing-only, never the only token", () => {
+    // OUT OF RANGE: 26/28/39/40 are not waists → preserved.
+    expect(colorMatchKey("Td 26")).not.toBe(colorMatchKey("Td"));
+    expect(colorMatchKey("Sky 28")).not.toBe(colorMatchKey("Sky"));
+    expect(colorMatchKey("Sky 40")).not.toBe(colorMatchKey("Sky"));
+    // NOT TRAILING: an interior/leading number is untouched.
+    expect(expandTokens("Td26 Black/White")).toBe("TD 26 BLACK WHITE");
+    expect(colorMatchKey("Td26 Black/White")).toBe("TD26BLACKWHITE");
+    expect(colorMatchKey("30 Blue")).toBe("30BLUE");
+    // NOT A BARE 2-DIGIT: 3- and 4-digit runs stay put.
+    expect(colorMatchKey("Blue 300")).toBe("BLUE300");
+    expect(colorMatchKey("Blue 3038")).toBe("BLUE3038");
+    // ONLY TOKEN: a colour that is nothing but a waist number is left alone.
+    expect(colorMatchKey("34")).toBe("34");
+    expect(stripColorWaistTail("34")).toBe("34");
+    // Only ONE trailing token is dropped.
+    expect(colorMatchKey("Blue 30 30")).toBe("BLUE30");
   });
 });
 

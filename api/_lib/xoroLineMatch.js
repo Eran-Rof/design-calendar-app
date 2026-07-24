@@ -122,10 +122,34 @@ export function expandTokens(s) {
     .map((t) => COLOR_ABBR[t] || t)
     .join(" ");
 }
+
+// ── leaked-waist strip (colour path only) ──────────────────────────────────
+// A denim WAIST size (29-38) has leaked into some catalog colour strings —
+// "Pond Medium Wash 34", "Bkb 30", "Veil Dark Wash 29" (48 SKUs / 42 colours /
+// 4 styles, exclusively 29-38, as of 2026-07-23). The trailing number is a
+// SIZE, not a colour word, so 31 of those colours are really the same colour
+// split across waists and should key to the colour minus the number. Drop a
+// SINGLE trailing bare 2-digit token in the waist range so the sized colour
+// converges with its number-less sibling. Guarded tightly:
+//   • TRAILING only — a leading/interior number is preserved: "Td26 Black/White"
+//     expands to "TD 26 BLACK WHITE" (26 is not last), left untouched.
+//   • RANGE only (29-38) — "Td 26" keeps its 26 (a tie-dye marker, not a waist).
+//   • never the ONLY token — a colour that is nothing but a number is left as-is.
+// This is a COLOUR-KEY normalisation ONLY. expandTokens() itself (used for the
+// full ItemNumber↔sku_code key via expandedKey, and for the display name) is
+// deliberately NOT stripped, so the legitimate trailing SIZE of a
+// STYLE-COLOR-SIZE code is never mistaken for a leaked waist.
+// MIRRORED by po_dq_norm_color() (migration 20273000000000…): that function
+// drops the same trailing waist token before it aggregates its space-free key.
+const COLOR_WAIST_TAIL = /\s(29|3[0-8])$/;
+export function stripColorWaistTail(expanded) {
+  const stripped = String(expanded ?? "").replace(COLOR_WAIST_TAIL, "");
+  return stripped.trim() ? stripped : expanded;   // never strip to empty
+}
 // Abbreviation-expanded loose key (no separators) — full ItemNumber↔sku_code.
 export const expandedKey = (s) => expandTokens(s).replace(/[^A-Z0-9]+/g, "");
 // Abbreviation-expanded colour key — for choosing the right sibling colour.
-export const expandedColorKey = (s) => expandTokens(s).replace(/\s+/g, " ").trim();
+export const expandedColorKey = (s) => stripColorWaistTail(expandTokens(s)).replace(/\s+/g, " ").trim();
 // Space-STRIPPED colour comparison key. expandedColorKey keeps single spaces, so
 // it splits on tokenisation differences that mean the same colour: Xoro's camel-
 // case "wTint" expands to "WITH TINT" (two tokens) while the catalog's "Wtint"
