@@ -6,8 +6,9 @@ import { collapseToRolledUpGrain, type RolledUpItem } from "../compute/rolledUpG
 function itemMap(entries: Array<[string, RolledUpItem]>) {
   return new Map<string, RolledUpItem>(entries);
 }
-const row = (customer_id: string, sku_id: string, period = "2027-02", qty = 0) => ({ customer_id, sku_id, period_start: period, qty });
-const qtyOf = (r: { qty: number }) => r.qty;
+interface Row { customer_id: string; sku_id: string; period_start: string; qty: number; }
+const row = (customer_id: string, sku_id: string, period = "2027-02", qty = 0): Row => ({ customer_id, sku_id, period_start: period, qty });
+const qtyOf = (r: Row) => r.qty;
 
 describe("collapseToRolledUpGrain", () => {
   it("drops sized rows when a rolled-up sibling is forecast for the same customer/style/colour", () => {
