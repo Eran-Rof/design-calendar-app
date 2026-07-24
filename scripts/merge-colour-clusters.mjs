@@ -60,15 +60,30 @@ const PAT = (() => {
   throw new Error("SUPABASE_PAT missing from .env.local");
 })();
 
-const sql = async (q) => {
-  const r = await fetch("https://api.supabase.com/v1/projects/qcvqvxxoperiurauoxmp/database/query", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${PAT}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ query: q }),
-  });
-  const text = await r.text();
-  if (!r.ok) throw new Error(`SQL ${r.status}: ${text.slice(0, 500)}`);
-  return JSON.parse(text);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// The Management API throttles bursts. Retry a 429 with exponential backoff so a
+// mid-run throttle pauses instead of aborting the whole sweep. A cluster's write
+// is one atomic transaction, so retrying the same statement list is safe: either
+// the first attempt never committed (429 before commit) or the retry re-runs an
+// already-merged cluster whose losers are now inactive — the repoints/renames
+// become no-ops. Non-429 errors still throw immediately.
+const sql = async (q, { retries = 6 } = {}) => {
+  for (let attempt = 0; ; attempt++) {
+    const r = await fetch("https://api.supabase.com/v1/projects/qcvqvxxoperiurauoxmp/database/query", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${PAT}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ query: q }),
+    });
+    const text = await r.text();
+    if (r.ok) return JSON.parse(text);
+    if (r.status === 429 && attempt < retries) {
+      const wait = Math.min(1000 * 2 ** attempt, 20000);
+      console.log(`    …429, backing off ${wait}ms (attempt ${attempt + 1}/${retries})`);
+      await sleep(wait);
+      continue;
+    }
+    throw new Error(`SQL ${r.status}: ${text.slice(0, 500)}`);
+  }
 };
 const lit = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
@@ -386,6 +401,7 @@ for (const c of scoped) {
     failed.push({ cluster: c.key, error: String(e.message || e).slice(0, 300) });
     console.error(`  ✗ ${c.key}: ${String(e.message || e).slice(0, 200)}`);
   }
+  await sleep(250);   // gentle throttle so the Management API doesn't 429 the sweep
 }
 
 console.log(`\nApplied ${okClusters}/${scoped.length} clusters. ${failed.length} failed.`);
