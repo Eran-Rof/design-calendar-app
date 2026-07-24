@@ -36,6 +36,14 @@ The reusable category reference list (used by the Future Demand Requests picker 
 
 Denim/pants styles carry an **inseam** (30 / 32 / 34) on the item master (`ip_item_master.inseam`, stamped by the Tangerine inseam style-merge). The wholesale grid shows an **Inseam** column, and inseam is a *grain* dimension: a style+color that exists in several inseams splits into **one planning line per inseam**, so each length is forecast and bought separately. Sizes still merge within an inseam (as everywhere). Styles with no inseam are unaffected — they stay a single line. In a Category/Sub-Cat/customer rollup that spans several inseams, the Inseam cell reads "(N inseams)". The column is toggleable (Columns button) and freezable like Style/Color.
 
+## Size is NOT a planning line — plan at the rolled-up (2026-07-24)
+
+Unlike inseam, **size is not a grain dimension in wholesale planning.** A style/color is planned as **one rolled-up line**, not one line per size. This is deliberate: wholesale demand and virtually all sales history sit at the style/color grain, and the size split is decided at PO time from a size curve — not forecast per size.
+
+The item master often holds a style/color as **both** a rolled-up (size-NULL) SKU **and** several sized SKUs (created by AR size-enrichment, matrix/PO entry, etc.). The build used to forecast the rolled-up **and** every size, copying the family number onto each size — so one style/color/customer/period showed as ~7 lines and the demand was multiplied (RYB1787 "Black Sands" read as 195 on the rolled-up + 6×882 on the sizes). The build now **collapses to the rolled-up**: whenever a (customer, style, color) has a rolled-up SKU with a forecast, the sized siblings' forecast rows are dropped. A style/color that has **no** rolled-up SKU (a size-only group) is left alone — dropping its sized rows would leave it with no line at all. The same rule was applied once to the existing runs to clear the duplicates already written.
+
+Sized SKUs still exist and still receive inventory, POs and sales; they're simply not a separate **forecast** line. (Incoming inventory a supply-only view surfaces by size is unaffected — the collapse is per customer, so it never hides another customer's only line.)
+
 ## Promote a new style/color to the company database
 
 New styles and colors you type on a TBD row stay **temporary** — they live only on the planning row and never touch the company masters. When you're ready to make one real, click the **🏢 DB** button at the end of the row (shown on planner-added rows that have a real style + color). It:
