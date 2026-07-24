@@ -110,6 +110,14 @@ const COLOR_ABBR = {
   LTWASH: "LIGHT WASH", MDWASH: "MEDIUM WASH", MEDWASH: "MEDIUM WASH",
   MDLTWASH: "MEDIUM LIGHT WASH", MEDLTWASH: "MEDIUM LIGHT WASH",
   LTGRAY: "LIGHT GREY", LTGREY: "LIGHT GREY", LTBROWN: "LIGHT BROWN",
+  // WORD-FORM fold, not an abbreviation — CEO 2026-07-23: "Blue Bleach and Blue
+  // Bleached are the same, use Blue Bleached". Verified against the live catalog
+  // before folding: `Bleach` appears in exactly ONE colour string ("Blue Bleach",
+  // 7 SKUs, RYB0991 only) and `Bleached` in one ("Blue Bleached", 27 SKUs across
+  // 5 styles), so this collapses that single pair and nothing else. Folding the
+  // shorter form INTO the longer keeps the CEO's chosen display name, because the
+  // canonical name is generated from the longest spelling in the cluster.
+  BLEACH: "BLEACHED",
 };
 export function expandTokens(s) {
   return String(s ?? "")

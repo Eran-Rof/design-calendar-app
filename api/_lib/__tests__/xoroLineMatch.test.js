@@ -111,6 +111,13 @@ describe("colorMatchKey (spelling tolerance)", () => {
     expect(expandTokens("Ltblueberry")).toBe("LTBLUEBERRY");
     expect(colorMatchKey("Medblush")).not.toBe(colorMatchKey("Medium Bluesh"));
   });
+  it("Bleach↔Bleached converge (CEO 2026-07-23: same colour, display 'Blue Bleached')", () => {
+    // A WORD-FORM fold, not an abbreviation. Attested: "Blue Bleach" (RYB0991)
+    // and "Blue Bleached" (5 styles) are the same colourway.
+    expect(colorMatchKey("Blue Bleach")).toBe(colorMatchKey("Blue Bleached"));
+    // Must not reach inside a longer word — "Bleacher" is its own token.
+    expect(expandTokens("Bleacher")).toBe("BLEACHER");
+  });
   it("Cam↔Camo converge", () => {
     expect(colorMatchKey("Woodland Cam")).toBe(colorMatchKey("Woodland Camo"));
     expect(colorMatchKey("Blk Camo")).toBe(colorMatchKey("Black Camo"));
