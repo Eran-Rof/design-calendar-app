@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  parseItemNumber, canonSize, sizeVariantsOf, colorMatchKey,
+  parseItemNumber, canonSize, sizeVariantsOf, colorMatchKey, expandTokens,
   resolveStyleToken, pickColorSizeMatch, mergePreservedLinks,
 } from "../xoroLineMatch.js";
 
@@ -60,6 +60,42 @@ describe("colorMatchKey (spelling tolerance)", () => {
   });
   it("does not collapse distinct colours", () => {
     expect(colorMatchKey("Sandcastle - Lt Wash")).not.toBe(colorMatchKey("Grey Wolf - Light Grey"));
+  });
+
+  // ── 2026-07-23 additions ────────────────────────────────────────────────
+  // Every pairing below is ATTESTED in the live catalog: the short and long
+  // spelling both exist on the SAME style, so these are observed duplicates,
+  // not speculative folds.
+  it("CEO-confirmed abbreviations converge", () => {
+    expect(colorMatchKey("T16 Vtg Blk Oyst Mushroom"))
+      .toBe(colorMatchKey("T16 Vintage Black Oyster Mushroom"));
+    expect(colorMatchKey("Drk Peach Msty Plms")).toBe(colorMatchKey("Dark Peach Misty Palms"));
+    expect(colorMatchKey("Medm Hthr Gry")).toBe(colorMatchKey("Medium Heather Grey"));
+    // No standalone SLT in the catalog today — folded to guard future ingest.
+    expect(colorMatchKey("Slt Blue")).toBe(colorMatchKey("Slate Blue"));
+  });
+
+  it("glued compounds converge with their spaced spelling", () => {
+    expect(colorMatchKey("Medusa-Dkblue")).toBe(colorMatchKey("Medusa - Dark Blue"));
+    expect(colorMatchKey("Americana-Mdblue")).toBe(colorMatchKey("Americana Medium Blue"));
+    expect(colorMatchKey("Crumble-Medblu")).toBe(colorMatchKey("Crumble - Medium Blue"));
+    expect(colorMatchKey("Skylar-Ltblue")).toBe(colorMatchKey("Skylar Light Blue"));
+    expect(colorMatchKey("Palms-Mdltwash")).toBe(colorMatchKey("Palms - Medium Light Wash"));
+    expect(colorMatchKey("Aruba-Medwash")).toBe(colorMatchKey("Aruba - Medium Wash"));
+    expect(colorMatchKey("Graywolf-Ltgray")).toBe(colorMatchKey("Graywolf - Light Grey"));
+  });
+
+  // The display path must emit a real two-word name, not the glued token.
+  it("expandTokens spells compounds out for the display name", () => {
+    expect(expandTokens("Crumble-Md Blu")).toBe("CRUMBLE MEDIUM BLUE");
+    expect(expandTokens("Crumble-Medblu")).toBe("CRUMBLE MEDIUM BLUE");
+    expect(expandTokens("T16 Vtg Blk Oyst Mushroom")).toBe("T 16 VINTAGE BLACK OYSTER MUSHROOM");
+  });
+
+  it("compound folds do not swallow legitimate longer words", () => {
+    // "LTBLUEBERRY" is one token and must never fold via the LTBLUE key.
+    expect(expandTokens("Ltblueberry")).toBe("LTBLUEBERRY");
+    expect(colorMatchKey("Medblush")).not.toBe(colorMatchKey("Medium Bluesh"));
   });
   it("Cam↔Camo converge", () => {
     expect(colorMatchKey("Woodland Cam")).toBe(colorMatchKey("Woodland Camo"));

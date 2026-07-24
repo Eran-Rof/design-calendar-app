@@ -70,14 +70,35 @@ export const looseKey = (s) => String(s ?? "").toUpperCase().replace(/[^A-Z0-9]+
 // check. Keep the two lists EXACTLY in sync — add a fold here, add it there.
 // Folds are TOKEN-based (whole-word), so word boundaries are safe: "CAMEL" is a
 // single token that never matches the "CAM" key, so it never folds to "CAMOEL".
+//
+// ⚠️SEPARATOR ASYMMETRY — the one place the two lists deliberately differ.
+// expandTokens() re-joins folded tokens with a SPACE; po_dq_norm_color() joins
+// with '' (it produces the space-stripped key directly, the SQL equivalent of
+// colorMatchKey). So a MULTI-WORD fold value is written "MEDIUM BLUE" here and
+// 'MEDIUMBLUE' there. They still converge, because colorMatchKey() strips the
+// space back out. Single-word folds are byte-identical on both sides.
 const COLOR_ABBR = {
   LT: "LIGHT", LITE: "LIGHT", LGT: "LIGHT", DK: "DARK", DRK: "DARK",
-  MD: "MEDIUM", MED: "MEDIUM", MDM: "MEDIUM",
+  MD: "MEDIUM", MED: "MEDIUM", MDM: "MEDIUM", MEDM: "MEDIUM",
   BLK: "BLACK", BLCK: "BLACK", BLAK: "BLACK",
   GRY: "GREY", GRAY: "GREY", GRYE: "GREY", HTHR: "HEATHER", HTR: "HEATHER",
   CHRCL: "CHARCOAL", CHRC: "CHARCOAL", WSH: "WASH", WHT: "WHITE", WHTE: "WHITE",
   BLU: "BLUE", NVY: "NAVY", BRN: "BROWN", GRN: "GREEN", W: "WITH", WTINT: "WITHTINT",
   CAM: "CAMO", CBO: "COMBO",
+  // CEO-confirmed 2026-07-23.
+  // SLT has no standalone occurrence in the catalog today — it is folded to
+  // guard the ingest path, so a future abbreviated feed cannot mint a duplicate.
+  OYST: "OYSTER", VTG: "VINTAGE", MSTY: "MISTY", PLMS: "PALMS", SLT: "SLATE",
+  // GLUED COMPOUNDS — one catalog ingest path strips every separator, so
+  // "Medium Blue" arrives as the single token "Mdblue". Token folding alone
+  // cannot split these (no camelCase or punctuation boundary to cut on), so
+  // each attested spelling gets an explicit multi-word fold. 562 SKUs / 38
+  // styles as of 2026-07-23; list derived from the live catalog, not guessed.
+  DKBLUE: "DARK BLUE", MDBLUE: "MEDIUM BLUE", MEDBLUE: "MEDIUM BLUE",
+  MDBLU: "MEDIUM BLUE", MEDBLU: "MEDIUM BLUE", LTBLUE: "LIGHT BLUE",
+  LTWASH: "LIGHT WASH", MDWASH: "MEDIUM WASH", MEDWASH: "MEDIUM WASH",
+  MDLTWASH: "MEDIUM LIGHT WASH", MEDLTWASH: "MEDIUM LIGHT WASH",
+  LTGRAY: "LIGHT GREY", LTGREY: "LIGHT GREY", LTBROWN: "LIGHT BROWN",
 };
 export function expandTokens(s) {
   return String(s ?? "")
