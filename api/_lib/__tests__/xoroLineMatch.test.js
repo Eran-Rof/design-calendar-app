@@ -75,6 +75,20 @@ describe("colorMatchKey (spelling tolerance)", () => {
     expect(colorMatchKey("Slt Blue")).toBe(colorMatchKey("Slate Blue"));
   });
 
+  it("GD (garment dyed) and BKB (black black) fold", () => {
+    expect(colorMatchKey("Dull Gold Gd")).toBe(colorMatchKey("Dull Gold Garment Dyed"));
+    expect(colorMatchKey("Bkb")).toBe(colorMatchKey("Black/Black"));
+    expect(colorMatchKey("Bkb")).toBe(colorMatchKey("Black Black"));
+    // The finish still DISTINGUISHES: a garment-dyed colour must not collapse
+    // onto the same colour without the finish.
+    expect(colorMatchKey("Dull Gold Gd")).not.toBe(colorMatchKey("Dull Gold"));
+  });
+
+  it("TD is left verbatim — it is a style-code marker, not a colour word", () => {
+    expect(expandTokens("Td Sky Blue")).toBe("TD SKY BLUE");
+    expect(expandTokens("Td26 Black/White")).toBe("TD 26 BLACK WHITE");
+  });
+
   it("glued compounds converge with their spaced spelling", () => {
     expect(colorMatchKey("Medusa-Dkblue")).toBe(colorMatchKey("Medusa - Dark Blue"));
     expect(colorMatchKey("Americana-Mdblue")).toBe(colorMatchKey("Americana Medium Blue"));
