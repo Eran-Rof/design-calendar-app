@@ -6,7 +6,9 @@ import { collapseToRolledUpGrain, type RolledUpItem } from "../compute/rolledUpG
 function itemMap(entries: Array<[string, RolledUpItem]>) {
   return new Map<string, RolledUpItem>(entries);
 }
-const row = (customer_id: string, sku_id: string, period = "2027-02", qty = 0) => ({ customer_id, sku_id, period_start: period, qty });
+interface Row { customer_id: string; sku_id: string; period_start: string; qty: number; }
+const row = (customer_id: string, sku_id: string, period = "2027-02", qty = 0): Row => ({ customer_id, sku_id, period_start: period, qty });
+const qtyOf = (r: Row) => r.qty;
 
 describe("collapseToRolledUpGrain", () => {
   it("drops sized rows when a rolled-up sibling is forecast for the same customer/style/colour", () => {
@@ -34,14 +36,33 @@ describe("collapseToRolledUpGrain", () => {
     expect(out.map((r) => r.sku_id).sort()).toEqual(["orphan", "roll"]);
   });
 
-  it("keeps sized rows when the group has NO rolled-up sibling (size-only style/colour)", () => {
+  it("size-only group: collapses to ONE representative sized SKU (the replicated family number, not the sum)", () => {
+    // RYB1505 GRAYWOLF case: six sizes all 882, no rolled-up. One line = 882.
     const items = itemMap([
-      ["s30", { style_code: "RYB9999", color: "Indigo", size: "30" }],
-      ["s32", { style_code: "RYB9999", color: "Indigo", size: "32" }],
+      ["s30", { style_code: "RYB1505", color: "Grey Wolf Light Grey", size: "30" }],
+      ["s31", { style_code: "RYB1505", color: "Grey Wolf Light Grey", size: "31" }],
+      ["s32", { style_code: "RYB1505", color: "Grey Wolf Light Grey", size: "32" }],
     ]);
-    const rows = [row("ROSS", "s30"), row("ROSS", "s32")];
-    const out = collapseToRolledUpGrain(rows, items);
-    expect(out.map((r) => r.sku_id).sort()).toEqual(["s30", "s32"]);
+    const rows = [
+      row("ROSS", "s30", "2027-02", 882), row("ROSS", "s31", "2027-02", 882), row("ROSS", "s32", "2027-02", 882),
+      row("ROSS", "s30", "2027-03", 882), row("ROSS", "s31", "2027-03", 882), row("ROSS", "s32", "2027-03", 882),
+    ];
+    const out = collapseToRolledUpGrain(rows, items, qtyOf);
+    // One SKU survives, across BOTH periods → one continuous line worth 882/mo.
+    const skus = new Set(out.map((r) => r.sku_id));
+    expect(skus.size).toBe(1);
+    expect(out).toHaveLength(2);
+    expect(out.every((r) => r.qty === 882)).toBe(true);
+  });
+
+  it("size-only, unequal quantities: the greatest-total sized SKU wins", () => {
+    const items = itemMap([
+      ["s30", { style_code: "RYB1", color: "Indigo", size: "30" }],
+      ["s32", { style_code: "RYB1", color: "Indigo", size: "32" }],
+    ]);
+    const out = collapseToRolledUpGrain(
+      [row("ROSS", "s30", "2027-02", 10), row("ROSS", "s32", "2027-02", 40)], items, qtyOf);
+    expect(out.map((r) => r.sku_id)).toEqual(["s32"]);
   });
 
   it("scopes the collapse per customer — one customer's rolled-up doesn't suppress another's sizes", () => {

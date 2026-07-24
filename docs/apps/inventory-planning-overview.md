@@ -36,13 +36,19 @@ The reusable category reference list (used by the Future Demand Requests picker 
 
 Denim/pants styles carry an **inseam** (30 / 32 / 34) on the item master (`ip_item_master.inseam`, stamped by the Tangerine inseam style-merge). The wholesale grid shows an **Inseam** column, and inseam is a *grain* dimension: a style+color that exists in several inseams splits into **one planning line per inseam**, so each length is forecast and bought separately. Sizes still merge within an inseam (as everywhere). Styles with no inseam are unaffected — they stay a single line. In a Category/Sub-Cat/customer rollup that spans several inseams, the Inseam cell reads "(N inseams)". The column is toggleable (Columns button) and freezable like Style/Color.
 
-## Size is NOT a planning line — plan at the rolled-up (2026-07-24)
+## One line per style/color — size is NOT a planning line (2026-07-24)
 
-Unlike inseam, **size is not a grain dimension in wholesale planning.** A style/color is planned as **one rolled-up line**, not one line per size. This is deliberate: wholesale demand and virtually all sales history sit at the style/color grain, and the size split is decided at PO time from a size curve — not forecast per size.
+Unlike inseam, **size is not a grain dimension in wholesale planning.** The grid shows exactly **one line per (customer, style, color, period)**. The size split is decided at **PO time** — the PO module spreads a style/color total across sizes — so planning never forecasts per size.
 
-The item master often holds a style/color as **both** a rolled-up (size-NULL) SKU **and** several sized SKUs (created by AR size-enrichment, matrix/PO entry, etc.). The build used to forecast the rolled-up **and** every size, copying the family number onto each size — so one style/color/customer/period showed as ~7 lines and the demand was multiplied (RYB1787 "Black Sands" read as 195 on the rolled-up + 6×882 on the sizes). The build now **collapses to the rolled-up**: whenever a (customer, style, color) has a rolled-up SKU with a forecast, the sized siblings' forecast rows are dropped. A style/color that has **no** rolled-up SKU (a size-only group) is left alone — dropping its sized rows would leave it with no line at all. The same rule was applied once to the existing runs to clear the duplicates already written.
+A style/color is held in the item master as a rolled-up (size-NULL) SKU **and/or** several sized SKUs (created by AR size-enrichment, matrix/PO entry, PPK explode, etc.). The build seeds a forecast row per SKU, and the family number is **replicated** onto every size (verified: RYB1787 "Black Sands" = 195 on the rolled-up + 6×882 on the sizes; RYB1505 "Grey Wolf Light Grey" = six sizes all 882 with no rolled-up). So one style/color rendered as up to 7 identical lines.
 
-Sized SKUs still exist and still receive inventory, POs and sales; they're simply not a separate **forecast** line. (Incoming inventory a supply-only view surfaces by size is unaffected — the collapse is per customer, so it never hides another customer's only line.)
+The build now **collapses each (customer, style, color) group to one representative SKU**:
+- if the group has a **rolled-up** (size-NULL) SKU, that wins — its value is the style/color-level number;
+- otherwise the **sized SKU with the greatest total** wins. Because the sizes are replicated, that equals the family number (summing them would over-count).
+
+Every other row in the group is dropped. A group that already has a single SKU is untouched, and the collapse is **per customer**, so it never hides another customer's only line. The same rule was applied once to the existing runs to clear the duplicates already written. Sized SKUs still exist and still receive inventory, POs and sales — they're simply not a separate **forecast** line.
+
+> This shipped in two steps: #1925 collapsed groups that have a rolled-up SKU; #1926 extended it to the size/PPK-only groups (which #1925 had left multi-line) so the "one line" rule now holds for **every** style/color.
 
 ## Promote a new style/color to the company database
 

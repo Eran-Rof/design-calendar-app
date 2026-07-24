@@ -597,19 +597,21 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   onProgress?.({ phase: "computing", label: `Computing forecast for ${pairs.length.toLocaleString()} pairs`, current: 0, total: pairs.length });
   let forecastRows = buildFinalWholesaleForecast(computeInput);
 
-  // Rolled-up grain (CEO 2026-07-24). A style/colour that exists as a rolled-up
-  // (size-NULL) SKU AND sized SKUs was being forecast on BOTH — with the family
-  // number replicated onto each size — so one style/colour/customer/period
-  // rendered as ~7 lines and inflated demand (RYB1787 Black Sands = 195 on the
-  // rolled-up + 6×882 on the sizes). Plan at the rolled-up, where the sales
-  // history actually sits; the size split happens at PO. Groups with no rolled-up
-  // sibling (size-only) are untouched. Applied here — before both period-scope
-  // trims and both upsert phases — so recommendations inherit the collapse too.
+  // One line per (customer, style, colour) — CEO invariant, 2026-07-24. The build
+  // seeds a row per SKU, and a style/colour is held as a rolled-up (size-NULL) SKU
+  // AND/OR many sized SKUs, with the family number REPLICATED onto each size, so
+  // one style/colour rendered as up to 7 identical lines (RYB1787 = 195 on the
+  // rolled-up + 6×882; RYB1505 GRAYWOLF = six sizes all 882 and NO rolled-up).
+  // Size is not a planning line — the PO module spreads a total across sizes. So
+  // collapse each group to ONE representative: the rolled-up if present, else the
+  // sized SKU with the greatest total (= the replicated family number; summing
+  // would over-count). Applied here — before both period-scope trims and both
+  // upsert phases — so recommendations inherit the collapse too.
   const rolledUpItemBySku = new Map(
     items.map((i) => [i.id, { style_code: i.style_code, sku_code: i.sku_code, color: i.color, size: i.size }]),
   );
   const beforeCollapse = forecastRows.length;
-  forecastRows = collapseToRolledUpGrain(forecastRows, rolledUpItemBySku);
+  forecastRows = collapseToRolledUpGrain(forecastRows, rolledUpItemBySku, (f) => f.system_forecast_qty ?? 0);
   const rowsCollapsedSizeGrain = beforeCollapse - forecastRows.length;
 
   // Weighted-average gross margin % per (customer, sku) over the same
