@@ -30,11 +30,12 @@ function fakeAdmin(rows, { onInsert } = {}) {
       maybeSingle: async () => ({ data: set[0] ?? null }),
       single: async () => ({ data: set[0] ?? null, error: null }),
       insert: (row) => { onInsert?.(row); const created = { ...row, id: "sku-new" }; store.items.push(created); return { select: () => ({ single: async () => ({ data: created, error: null }) }) }; },
+      update: (patch) => ({ eq: async (col, val) => { for (const r of store.items) if (String(r[col]) === String(val)) Object.assign(r, patch); return { data: null, error: null }; } }),
       then: (resolve) => resolve({ data: set, error: null }),
     };
     return api;
   }
-  return { from: builder };
+  return { store, from: builder };
 }
 
 describe("resolveOrCreateSku colour handling", () => {
@@ -46,6 +47,31 @@ describe("resolveOrCreateSku colour handling", () => {
       style_id: STYLE_ID, style_code: "RYB0991", color: "Blck Paradise", size: "31",
     }, { isApparel: false });
     expect(out).toEqual({ id: "existing-31", created: false });
+  });
+
+  it("prefers the ACTIVE survivor over an OLDER deactivated loser (post-merge revival guard)", async () => {
+    // The colour-cluster merge deactivates the loser but leaves it in place, and
+    // 125 losers are older than their survivor. The nightly REST resolver must not
+    // resolve a cell back onto the retired row.
+    const admin = fakeAdmin([
+      { id: "loser-old", sku_code: "RYB0991-BLCKPARADISE-31", color: "Black Paradise", size: "31", created_at: "2026-04-26", active: false },
+      { id: "survivor", sku_code: "RYB0991-BLCK-PARADISE-31", color: "Black Paradise", size: "31", created_at: "2026-07-17", active: true },
+    ]);
+    const out = await resolveOrCreateSku(admin, ENTITY_ID, {
+      style_id: STYLE_ID, style_code: "RYB0991", color: "Blck Paradise", size: "31",
+    }, { isApparel: false });
+    expect(out).toEqual({ id: "survivor", created: false });
+  });
+
+  it("reactivates an inactive match when no active twin exists", async () => {
+    const admin = fakeAdmin([
+      { id: "only-inactive", sku_code: "RYB0991-BLCK-PARADISE-31", color: "Black Paradise", size: "31", active: false },
+    ]);
+    const out = await resolveOrCreateSku(admin, ENTITY_ID, {
+      style_id: STYLE_ID, style_code: "RYB0991", color: "Blck Paradise", size: "31",
+    }, { isApparel: false });
+    expect(out).toEqual({ id: "only-inactive", created: false });
+    expect(admin.store.items.find((r) => r.id === "only-inactive").active).toBe(true);
   });
 
   it("inherits the established spelling when creating a NEW size", async () => {

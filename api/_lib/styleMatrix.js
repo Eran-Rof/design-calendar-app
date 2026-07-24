@@ -962,7 +962,7 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
     // failed to see the existing "Black Paradise" row and we created a duplicate.
     // colorMatchKey folds the full COLOR_ABBR dictionary and strips separators, so
     // it is strictly wider — everything canonColor matched still matches here.
-    const q = admin.from("ip_item_master").select("id, color, size, inseam, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
+    const q = admin.from("ip_item_master").select("id, color, size, inseam, created_at, active").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
     const { data: rows, error: e } = await q;
     if (e || !rows || !rows.length) return null;
     const wantInseam = inseamVal || null;
@@ -972,12 +972,32 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
       (colorVal ? colorMatchKey(r.color) === colorKey : r.color == null) &&
       (((r.inseam ? String(r.inseam).trim() : null) || null) === wantInseam));
     if (!matches.length) return null;
-    return matches.slice().sort((a, b) =>
-      (normalizeSize(b.size) === b.size) - (normalizeSize(a.size) === a.size) // exact-canonical first
-      || String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))[0].id;
+    // ACTIVE rows win, always. The colour-cluster merge (2026-07-24) deactivates
+    // duplicate SKUs but leaves them in place (they keep their sku_code + FK
+    // audit trail), and 125 of those losers are OLDER than the survivor they were
+    // merged into. Without this the oldest-first tiebreak below would resolve a
+    // nightly REST cell to a DEACTIVATED loser — reviving the split on an invisible
+    // inactive row. So rank active before inactive first; the created_at / id
+    // tiebreaks only decide between rows of the same active state. An inactive row
+    // is still returned when NO active match exists, so a legitimately retired-then-
+    // resurrected SKU is reused rather than forked (caller reactivates on write).
+    const chosen = matches.slice().sort((a, b) =>
+      (b.active === true) - (a.active === true) // active first
+      || (normalizeSize(b.size) === b.size) - (normalizeSize(a.size) === a.size) // exact-canonical
+      || String(a.created_at).localeCompare(String(b.created_at)) || String(a.id).localeCompare(String(b.id)))[0];
+    return { id: chosen.id, active: chosen.active !== false };
   }
-  const existingId = await findExistingId();
-  if (existingId) return { id: existingId, created: false };
+  const existing = await findExistingId();
+  if (existing) {
+    // If the only match is an inactive row (all active twins were retired, so the
+    // merge left no active survivor for this exact cell — rare), REACTIVATE it so
+    // the on-hand / order write that follows lands on a visible SKU instead of a
+    // hidden one. The normal case (an active survivor exists) never reaches here.
+    if (!existing.active) {
+      await admin.from("ip_item_master").update({ active: true }).eq("id", existing.id);
+    }
+    return { id: existing.id, created: false };
+  }
 
   // style_code for the new SKU. ALWAYS prefer the CANONICAL code from style_master
   // (by style_id) over the caller's string — a REST/import feed can hand us a
