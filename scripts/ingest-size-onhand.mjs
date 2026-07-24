@@ -399,9 +399,14 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     // No own SKUs (empty style row) OR no style row at all → look for parent SKUs
     // coded with this BP prefix.
     if (ownCount === 0) {
+      // active=true only: the colour-cluster merge (2026-07-24) deactivates
+      // duplicate SKUs but leaves them coded `${styleCode}-*`. Including them here
+      // would let a nightly REST cell resolve to a retired loser and land on-hand
+      // on an invisible row (byCS below keys on canonColor, which a loser's spelling
+      // still maps to). Scope the parent set to LIVE SKUs only.
       const { data: pfx } = await admin
         .from("ip_item_master").select("id, style_id, inseam")
-        .eq("entity_id", ROF_ENTITY_ID).like("sku_code", `${styleCode}-%`);
+        .eq("entity_id", ROF_ENTITY_ID).eq("active", true).like("sku_code", `${styleCode}-%`);
       if (pfx && pfx.length > 0) {
         const parentIds = [...new Set(pfx.map((r) => r.style_id).filter(Boolean))];
         const inseams = [...new Set(pfx.map((r) => r.inseam).filter((v) => v != null).map((v) => String(v).trim()))];
