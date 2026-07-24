@@ -23,6 +23,7 @@ import {
   buildFinalWholesaleForecast,
   buildRollingWholesaleSupply,
   classifyAbcXyz,
+  collapseToRolledUpGrain,
   generateWholesaleRecommendations,
   historicalReceiptsInPeriod,
   latestOnHandBySku,
@@ -131,6 +132,10 @@ export interface RunForecastPassResult {
   // Pairs seeded to honor the build filter even when they have no history —
   // the filter-selected products that would otherwise not have built.
   pairs_seeded_filter: number;
+  // Sized-SKU forecast rows dropped because their (customer, style, colour) is
+  // planned at the rolled-up (size-NULL) grain. Zero once the catalog has no
+  // remaining both-grains style/colours.
+  rows_collapsed_size_grain: number;
   // True when the grid's period filter selected only month(s) OUTSIDE the
   // run's horizon. Applying it would have dropped every computed row and
   // silently written an empty build, so the build IGNORES the period filter
@@ -592,6 +597,21 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
   onProgress?.({ phase: "computing", label: `Computing forecast for ${pairs.length.toLocaleString()} pairs`, current: 0, total: pairs.length });
   let forecastRows = buildFinalWholesaleForecast(computeInput);
 
+  // Rolled-up grain (CEO 2026-07-24). A style/colour that exists as a rolled-up
+  // (size-NULL) SKU AND sized SKUs was being forecast on BOTH — with the family
+  // number replicated onto each size — so one style/colour/customer/period
+  // rendered as ~7 lines and inflated demand (RYB1787 Black Sands = 195 on the
+  // rolled-up + 6×882 on the sizes). Plan at the rolled-up, where the sales
+  // history actually sits; the size split happens at PO. Groups with no rolled-up
+  // sibling (size-only) are untouched. Applied here — before both period-scope
+  // trims and both upsert phases — so recommendations inherit the collapse too.
+  const rolledUpItemBySku = new Map(
+    items.map((i) => [i.id, { style_code: i.style_code, sku_code: i.sku_code, color: i.color, size: i.size }]),
+  );
+  const beforeCollapse = forecastRows.length;
+  forecastRows = collapseToRolledUpGrain(forecastRows, rolledUpItemBySku);
+  const rowsCollapsedSizeGrain = beforeCollapse - forecastRows.length;
+
   // Weighted-average gross margin % per (customer, sku) over the same
   // T3 window used for trailing qty. Weighted by net_amount so a $10k
   // sale moves the average more than a $100 sale. Skips rows with null
@@ -857,6 +877,7 @@ export async function runForecastPass(run: IpPlanningRun, options: RunForecastPa
     pairs_pruned_dead: prunedDeadCount,
     pairs_pruned_filter: prunedFilterCount,
     pairs_seeded_filter: seededFilterCount,
+    rows_collapsed_size_grain: rowsCollapsedSizeGrain,
     period_filter_out_of_horizon: periodFilterOutOfHorizon,
     methods,
   };
