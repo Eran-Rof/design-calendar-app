@@ -167,6 +167,8 @@ Find it under **Master Data → Color Master** (`/tangerine?m=color_master`). Th
 >
 > **Product-line markers are kept as-is.** `Td` (tie dyed) is deliberately *not* expanded: it mirrors the style-code suffix (`Td Sky Blue` runs on style `PTBG0094TD`), so it identifies a product line rather than a colour, and expanding it would turn `Td26 Black/White` into nonsense. Style/tier prefixes like `T16` are preserved for the same reason.
 >
+> **A leaked waist size is stripped.** Some catalog colours end in a bare two-digit **waist** — `Pond Medium Wash 34`, `Bkb 30`, `Veil Dark Wash 29` — where the size dimension leaked into the colour string. Matching drops a single trailing two-digit number **in the waist range 29–38** so `Pond Medium Wash 34` is recognised as the same colour as `Pond Medium Wash`. The guard is tight: only a *trailing* bare two-digit number in that range is dropped, so `Td 26` (out of range), `Td26 Black/White` (not trailing) and a colour that is *only* a number keep their digits.
+>
 > ⚠️ Folding governs **matching**, not the stored spelling: the catalog can still hold several spellings of one colour as separate SKUs. Consolidating those duplicate SKUs is the separate colour-merge data repair tracked in OPERATOR-TODO.
 
 **Two-tone colourways.** Name a colour `A/B` — e.g. `Grey/Black` — and the swatch renders a **diagonal half-and-half split** (left half Grey, right half Black), each half resolved from its name. This works in the Color Master grid, the add/edit preview, and the Style Master colour chips. No special data entry — just the `/` in the name.
