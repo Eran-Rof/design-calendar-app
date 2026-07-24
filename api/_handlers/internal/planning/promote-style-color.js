@@ -15,6 +15,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { resolveInternalRecipientsDetailed } from "../../../_lib/internal-recipients.js";
+import { colorMatchKey } from "../../../_lib/xoroLineMatch.js";
 
 export const config = { maxDuration: 30 };
 
@@ -66,7 +67,8 @@ export default async function handler(req, res) {
   const groupName = clean(body.group_name) || null;
   const subCat = clean(body.sub_category_name) || null;
   const description = clean(body.description) || (color ? `${styleCode} ${color}` : styleCode);
-  const skuCode = skuFor(styleCode, color);
+  let skuCode = skuFor(styleCode, color);
+  let colorVal = color;
 
   const result = {
     sku_code: skuCode,
@@ -80,7 +82,31 @@ export default async function handler(req, res) {
 
   // 1. ip_item_master — idempotent on sku_code (UNIQUE). entity_id / brand_id /
   // uom / active / pack_size all default server-side, so sku_code is enough.
+  //
+  // ⚠️ sku_code alone is NOT enough to decide "already exists". skuFor() derives
+  // the code from the RAW colour, so promoting "Blck Paradise" onto a style that
+  // already carries "Black Paradise" produced a different code and therefore a
+  // SECOND SKU for one physical colourway — ATS then shows two lines and splits
+  // on-hand/sales between them. Match the style's existing colours on the full
+  // COLOR_ABBR dictionary first, and if one is the same colour, reuse that row's
+  // spelling (and its sku_code) rather than minting a variant.
   try {
+    if (color) {
+      const wantKey = colorMatchKey(color);
+      const { data: sibs } = await admin
+        .from("ip_item_master").select("id, sku_code, color, created_at")
+        .eq("style_code", styleCode).not("color", "is", null)
+        .order("created_at", { ascending: true }).limit(500);
+      const sib = (sibs || []).find((r) => colorMatchKey(r.color) === wantKey);
+      if (sib?.color) {
+        // Adopt the ESTABLISHED spelling (oldest row wins) so downstream grouping
+        // by `color` sees one colourway, and re-derive the code from it.
+        colorVal = String(sib.color).trim();
+        skuCode = skuFor(styleCode, colorVal);
+        result.sku_code = skuCode;
+        if (colorMatchKey(colorVal) !== colorMatchKey(color)) result.warnings.push("colour spelling normalized");
+      }
+    }
     const { data: existingItem } = await admin
       .from("ip_item_master").select("id").eq("sku_code", skuCode).maybeSingle();
     if (existingItem?.id) {
@@ -93,7 +119,7 @@ export default async function handler(req, res) {
         [{
           sku_code: skuCode,
           style_code: styleCode,
-          color,
+          color: colorVal,
           description,
           active: true,
           attributes: attrs,

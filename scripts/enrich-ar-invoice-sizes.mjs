@@ -347,7 +347,7 @@ async function planInvoice(num) {
     const found = findSkuLocal(anchor.style_id, anchor.color, size, inseam);
     if (found.id) { stats.skuReused++; if (found.dup) stats.dupPicks++; return { id: found.id }; }
     if (!APPLY) { stats.skuCreated++; return { id: `WOULD-CREATE:${anchor.style_code}|${canonColor(anchor.color)}|${normalizeSize(size)}|${inseam || ""}` }; }
-    const created = await resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: anchor.style_id, style_code: anchor.style_code, color: anchor.color, size, inseam }, { isApparel: false });
+    const created = await resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: anchor.style_id, style_code: anchor.style_code, color: anchor.color, size, inseam }, { isApparel: false , source: "ar_size_enrich" });
     if (created.error || !created.id) { logException({ invoice: num, item: itemNumberForLog, reason: "resolveOrCreateSku failed: " + (created.error || "no id") }); return { err: true }; }
     if (created.created) { stats.skuCreated++; indexPush({ id: created.id, sku_code: null, style_id: anchor.style_id, style_code: anchor.style_code, color: canonColor(anchor.color), size: String(normalizeSize(size)), inseam: inseam || null }); appendJsonl(createdSkuPath, { invoice: num, style_id: anchor.style_id, style_code: anchor.style_code, color: anchor.color, size, inseam, sku_id: created.id }); }
     else stats.skuReused++;

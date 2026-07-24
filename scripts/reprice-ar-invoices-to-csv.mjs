@@ -223,7 +223,7 @@ async function resolveSku(styleId, styleCode, color, size, inseam, num) {
   const found = findSkuLocal(styleId, color, size, inseam);
   if (found.id) { stats.skuReused++; return { id: found.id }; }
   if (!APPLY) { stats.skuCreated++; return { id: `WOULD:${styleCode}|${canonColor(color)}|${normalizeSize(size)}|${inseam || ""}` }; }
-  const c = await resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: styleId, style_code: styleCode, color, size, inseam }, { isApparel: false });
+  const c = await resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: styleId, style_code: styleCode, color, size, inseam }, { isApparel: false , source: "ar_reprice_csv" });
   if (c.error || !c.id) return { err: c.error || "no id" };
   if (c.created) { stats.skuCreated++; indexPush({ id: c.id, sku_code: null, style_id: styleId, style_code: styleCode, color: canonColor(color), size: String(normalizeSize(size)), inseam: inseam || null }); } else stats.skuReused++;
   return { id: c.id };

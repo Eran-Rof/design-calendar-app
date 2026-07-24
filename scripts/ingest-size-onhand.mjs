@@ -471,7 +471,7 @@ async function applyStyle(admin, styleCode, snapshotDate, styleIdHint) {
     }
   } else {
     async function findOrCreateSizeSku(color, size) {
-      return resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: styleId, style_code: styleCode, color, size, inseam: resolveInseam }, { isApparel: false });
+      return resolveOrCreateSku(admin, ROF_ENTITY_ID, { style_id: styleId, style_code: styleCode, color, size, inseam: resolveInseam }, { isApparel: false , source: "size_onhand_ingest" });
     }
     for (const cell of cells) {
       const k = `${cell.color}||${cell.size}`;

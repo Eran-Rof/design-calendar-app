@@ -120,7 +120,7 @@ console.log(`\n# APPLY: processing ${toApply.length} candidate SKU(s)…`);
 for (const x of toApply) {
   const style_id = smById.get(x.style.toUpperCase());
   if (!style_id) { failed++; console.warn(`  no style_id for ${x.style}`); continue; }
-  const r = await resolveOrCreateSku(admin, ROF, { style_id, style_code: x.style, color: x.color, size: x.size }, { isApparel: false });
+  const r = await resolveOrCreateSku(admin, ROF, { style_id, style_code: x.style, color: x.color, size: x.size }, { isApparel: false , source: "create_missing_skus" });
   if (r.error || !r.id) { failed++; console.warn(`  create failed ${x.style}/${x.color}/${x.size}: ${r.error}`); continue; }
   if (r.created) created++; else reused++;
   const { error: upErr } = await admin.from("upc_item_master").upsert(

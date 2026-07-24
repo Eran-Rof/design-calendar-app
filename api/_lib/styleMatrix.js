@@ -14,6 +14,13 @@
 //     → { id, created }  — finds the sized SKU for (style,color,size,inseam) or
 //     creates it (matrix cells auto-materialize SKUs on first use).
 
+// colorMatchKey is the CATALOG-WIDE colour dictionary (COLOR_ABBR: BLCK→BLACK,
+// MDBLUE→MEDIUM BLUE, OYST→OYSTER, …). canonColor below expands only a handful
+// of tokens and is kept as-is because it drives matrix DISPLAY grouping; SKU
+// creation must use the wider key or it forks a new row for every unrecognised
+// abbreviation. One-way dependency — xoroLineMatch.js imports nothing.
+import { colorMatchKey } from "./xoroLineMatch.js";
+
 const SKU_SAFE = (s) => String(s ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "-").replace(/^-+|-+$/g, "");
 
 // Canonical letter-size labels (match the size_scales master: "Mens S–2XL" =
@@ -893,9 +900,30 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
   // existing physical color (see canonColor). findExistingId() below also matches
   // canonically, so an entry for "Skyfall Light Wash" reuses a legacy raw
   // "SKYFALL - Lt Wash" row rather than creating a third.
-  const colorVal = color ? canonColor(String(color).trim()) : null;
+  let colorVal = color ? canonColor(String(color).trim()) : null;
   const canonSize = String(normalizeSize(String(size).trim()));   // store + create canonical
   let inseamVal = inseam ? String(inseam).trim() : null;
+
+  // ── INHERIT THE SIBLING'S COLOUR SPELLING ────────────────────────────────
+  // canonColor only expands {LT,DK,MED,W,WTH,BLCK,CBO,CAM}. Any OTHER abbreviation
+  // the feed writes survives it verbatim, so "Blck Paradise" / "Americana- Mdblue"
+  // canonicalised to themselves and minted a SECOND row alongside the catalog's
+  // "Black Paradise" / "Americana- Medium Blue" — one colourway, two ATS lines,
+  // on-hand and sales split across them (RYB0991 sizes 30 and 36 landed on
+  // different spellings of Black Paradise). Match siblings on the full COLOR_ABBR
+  // key and adopt the ESTABLISHED spelling (oldest row wins) instead of writing
+  // our own. Same rule the Xoro importer already applies (import-xoro-orders.mjs).
+  // Never rewrites stored rows — this only decides what a NEW row is created with.
+  const colorKey = colorVal ? colorMatchKey(colorVal) : "";
+  if (colorKey) {
+    const { data: sibs } = await admin
+      .from("ip_item_master").select("color, created_at")
+      .eq("entity_id", entityId).eq("style_id", style_id)
+      .not("color", "is", null)
+      .order("created_at", { ascending: true }).limit(500);
+    const sib = (sibs || []).find((r) => colorMatchKey(r.color) === colorKey);
+    if (sib?.color) colorVal = String(sib.color).trim();
+  }
 
   // Inherit the apparel dims (inseam / length / fit) from an existing sibling SKU
   // of this style (same colour preferred) so a NEW size variant of an apparel
@@ -928,16 +956,20 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
   // Reused on a 23505 below so a race / the logical-tuple UNIQUE index
   // (uq_ip_item_master_logical_sku) resolves to the existing row, not an error.
   async function findExistingId() {
-    // Match by size-variant + inseam in the query, then filter to the CANONICAL
-    // color in JS (can't canonColor inside a PostgREST filter) so a canonical
-    // colorVal reuses whatever raw spelling the row was stored with. `colorVal`
-    // is already canonical (or null); compare against canonColor(row.color).
+    // Match by size-variant + inseam in the query, then filter the COLOUR in JS
+    // (can't run the dictionary inside a PostgREST filter). Compare on
+    // colorMatchKey, NOT canonColor: canonColor("Blck Paradise") is itself, so it
+    // failed to see the existing "Black Paradise" row and we created a duplicate.
+    // colorMatchKey folds the full COLOR_ABBR dictionary and strips separators, so
+    // it is strictly wider — everything canonColor matched still matches here.
     const q = admin.from("ip_item_master").select("id, color, size, inseam, created_at").eq("entity_id", entityId).eq("style_id", style_id).in("size", sizeVariantsOf(size));
     const { data: rows, error: e } = await q;
     if (e || !rows || !rows.length) return null;
     const wantInseam = inseamVal || null;
     const matches = rows.filter((r) =>
-      ((canonColor(r.color) ?? null) === (colorVal ?? null)) &&
+      // Null colour matches only null colour — colorMatchKey(null) is "" and must
+      // not bind a colourless row to a real colourway.
+      (colorVal ? colorMatchKey(r.color) === colorKey : r.color == null) &&
       (((r.inseam ? String(r.inseam).trim() : null) || null) === wantInseam));
     if (!matches.length) return null;
     return matches.slice().sort((a, b) =>
@@ -975,9 +1007,13 @@ export async function resolveOrCreateSku(admin, entityId, { style_id, style_code
     // for styles with no dim-carrying sibling. !! makes null→false (the intended
     // non-apparel value) without changing any valid true/false result.
     const apparelFinal = !!((isApparel || siblingApparel) && !!colorVal && !!canonSize && !!inseamVal && !!lengthVal && !!fitVal);
+    // Tag the creator. The 07-22/23 duplicate burst left 433 SKUs with
+    // attributes->>'source' NULL, so the path that minted them had to be found by
+    // hand instead of by query. Callers pass opts.source; default names this one.
+    const attrs = { source: opts.source || "matrix_autocreate" };
     const { data: created, error } = await admin
       .from("ip_item_master")
-      .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: canonSize, inseam: inseamVal, length: lengthVal, fit: fitVal, is_apparel: apparelFinal })
+      .insert({ entity_id: entityId, sku_code: skuCode, style_code: sc, style_id, color: colorVal, size: canonSize, inseam: inseamVal, length: lengthVal, fit: fitVal, is_apparel: apparelFinal, attributes: attrs })
       .select("id")
       .single();
     if (!error && created) return { id: created.id, created: true };
