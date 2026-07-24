@@ -83,6 +83,21 @@ The editable surfaces use the `EditableSizeMatrix` component (`src/shared/matrix
 
 A `color × size` cell may not yet have a SKU row in `ip_item_master`. When the operator types a qty into a cell and clicks "Add to PO / SO / adjustment", the surface calls `POST /api/internal/style-matrix/resolve-sku` → `resolveOrCreateSku(admin, entityId, { style_id, style_code, color, size, inseam })`. That helper **finds or creates** the sized SKU (composing a unique `sku_code` like `RYB0412-BLACK-32`, retrying with a numeric suffix on a `23505` unique collision). Matrix cells materialize SKUs on first use — so the operator never has to pre-create every size variant.
 
+### A new SKU never invents a new spelling of an existing colour (2026-07-23)
+
+Auto-creation is where duplicate colourways used to come from. `resolveOrCreateSku` decided "does this colour already exist?" with `canonColor`, which expands only a handful of tokens (`Lt`, `Dk`, `Med`, `w`, `Blck`, `Cbo`, `Cam`). Any **other** abbreviation the feed wrote survived it unchanged, so the helper looked for it, didn't find it, and minted a second SKU for a colour the style already carried. On `RYB0991` that produced **`Black Paradise`** (created 04-26, carrying all 9,188 units of sales) alongside **`Blck Paradise`** (created 07-01/07-17, carrying none) — one physical colourway, two ATS lines, with size 36's on-hand under one spelling and size 30's under the other.
+
+Two changes close it:
+
+- **Matching uses the full colour dictionary.** The find step now compares on `colorMatchKey` (the `COLOR_ABBR` dictionary — `BLCK`→`BLACK`, `MDBLUE`→`MEDIUM BLUE`, `OYST`→`OYSTER`, plus the glued compounds), not `canonColor`. It is strictly wider, so everything that matched before still matches; a regression test asserts that.
+- **The established spelling wins.** When the style already carries the same colour under a different spelling, the new SKU is created with the **existing** colour string — the oldest row's — rather than whatever the caller passed or what `canonColor` would produce. This is the rule the Xoro importer already followed; every create path now shares it.
+
+Nothing stored is rewritten: this only decides what a **new** row is created with. The duplicates that already exist are cleaned up by the separate colour-merge step.
+
+New SKUs also carry `attributes.source` naming the path that created them (`matrix_autocreate`, `ar_size_enrich`, `size_onhand_ingest`, `planning_promoted`, …), so if duplicates ever reappear the responsible path is one query away instead of a hunt.
+
+`Planning → promote style+color` had the same hole from a different angle — it checked for an existing row by **exact `sku_code`**, and built that code from the raw colour, so a differently-spelled colour produced a different code and therefore a new SKU. It now matches the style's existing colours through the same dictionary and reuses their spelling.
+
 ### Why a PO body sometimes showed no size rows (fixed)
 
 The PO / SO size matrix groups its rows by **color**. If the underlying `ip_item_master` row has a **NULL `color`**, the matrix can't place the line — every line of the style collapses into a single blank **"—"** row, so the PO body looks empty even though the lines exist. The Xoro import / sync paths that create item-master stubs used to leave `color` NULL (the colour was in the `sku_code` but not the column). Those paths now **derive the colour from the Xoro `ItemNumber`** (`STYLE-COLOR-SIZE`, e.g. `RYB059530PPK-Island Breeze lt wash-PPK24` → colour **Island Breeze Lt Wash**) and populate it on every new stub, and **self-heal** an existing stub whose colour is still NULL when a later import links to it. This is best-effort and never overwrites a colour the Item Master already carries. If you still see a collapsed PO body on a style, check that its `ip_item_master` rows carry a colour (a re-import of that PO backfills it).
