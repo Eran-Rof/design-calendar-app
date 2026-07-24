@@ -86,7 +86,9 @@ const COLOR_ABBR = {
   BLU: "BLUE", NVY: "NAVY", BRN: "BROWN", GRN: "GREEN", W: "WITH", WTINT: "WITHTINT",
   CAM: "CAMO", CBO: "COMBO",
   // CEO-confirmed 2026-07-23.
-  OYST: "OYSTER", VTG: "VINTAGE", MSTY: "MISTY", PLMS: "PALMS",
+  // SLT has no standalone occurrence in the catalog today — it is folded to
+  // guard the ingest path, so a future abbreviated feed cannot mint a duplicate.
+  OYST: "OYSTER", VTG: "VINTAGE", MSTY: "MISTY", PLMS: "PALMS", SLT: "SLATE",
   // GLUED COMPOUNDS — one catalog ingest path strips every separator, so
   // "Medium Blue" arrives as the single token "Mdblue". Token folding alone
   // cannot split these (no camelCase or punctuation boundary to cut on), so

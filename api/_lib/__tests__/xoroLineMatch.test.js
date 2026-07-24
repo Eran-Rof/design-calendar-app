@@ -71,6 +71,8 @@ describe("colorMatchKey (spelling tolerance)", () => {
       .toBe(colorMatchKey("T16 Vintage Black Oyster Mushroom"));
     expect(colorMatchKey("Drk Peach Msty Plms")).toBe(colorMatchKey("Dark Peach Misty Palms"));
     expect(colorMatchKey("Medm Hthr Gry")).toBe(colorMatchKey("Medium Heather Grey"));
+    // No standalone SLT in the catalog today — folded to guard future ingest.
+    expect(colorMatchKey("Slt Blue")).toBe(colorMatchKey("Slate Blue"));
   });
 
   it("glued compounds converge with their spaced spelling", () => {

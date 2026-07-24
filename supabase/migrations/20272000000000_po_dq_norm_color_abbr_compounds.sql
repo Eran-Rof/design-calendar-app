@@ -39,8 +39,11 @@ AS $function$
       WHEN 'CAM'  THEN 'CAMO'    WHEN 'CBO'  THEN 'COMBO'
       -- CEO-confirmed 2026-07-23. Each pairing is attested in the live catalog:
       -- the short and long spelling both occur on the SAME style.
+      -- SLT has no standalone occurrence in the catalog today; it is folded to
+      -- guard the ingest path against a future abbreviated feed.
       WHEN 'OYST' THEN 'OYSTER'  WHEN 'VTG'  THEN 'VINTAGE'
       WHEN 'MSTY' THEN 'MISTY'   WHEN 'PLMS' THEN 'PALMS'
+      WHEN 'SLT'  THEN 'SLATE'
       -- GLUED COMPOUNDS: one ingest path strips every separator, so "Medium
       -- Blue" arrives as the single token "Mdblue". Token folding cannot split
       -- these, so every attested spelling gets an explicit fold. Values are
